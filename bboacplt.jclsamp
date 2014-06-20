@@ -1,0 +1,127 @@
+//OLAPLT  JOB (),'ME',
+//   MSGCLASS=H,NOTIFY=&SYSUID
+//*
+//* BUILD SAMPLE PLTPI MODULE FOR TESTING OLA
+//*
+//* Copyright IBM Corporation 2010,2014
+//*                                                                       
+//* LICENSE: Apache License
+//*          Version 2.0, January 2004
+//*          http://www.apache.org/licenses/
+//*
+//KIXPROC JCLLIB ORDER=<CICS.SDFHPROC>
+//*
+//CMP1 EXEC DFHEITAL,INDEX='<CICSTSxx.CICS>',
+//        DSCTLIB='<CICS.SDFHMAC>'
+//TRN.SYSIN  DD *
+*ASM XOPTS(CICS,SP,NOPROLOG,NOEPILOG)
+         TITLE 'BBOACPLT - WAS Optimized Local Adapters CICS PLTPI'
+*/*START OF SPECIFICATIONS ********************************************
+*
+* DESCRIPTIVE-NAME: WAS z/OS Optimized Adapters CICS PLT Init program
+*
+* CSECT NAME: BBOACPLT
+*
+* FUNCTION:  Run as CICS PLTPI program and complete BBOC requests -
+*            activate the WAS OLA CICS TRUE during CICS startup.
+*
+*END OF SPECIFICATIONS ***********************************************/
+*
+         DFHREGS  ,
+BBOACPLT AMODE 31
+BBOACPLT RMODE ANY
+BBOACPLT CSECT
+*
+         DFHEIENT CODEREG=11,EIBREG=10
+*
+         WTO   'XXXXXXX1I WAS z/OS OLA CICS PLT init start.'
+*
+*---------------------------------------------------------------------
+* Address the EIB.
+* This is needed, because EIBREG above is giving us the USER EIB
+* but we are compiled to use the SYSTEM EIB.
+*---------------------------------------------------------------------
+
+         EXEC CICS ADDRESS EIB(DFHEIBR)
+*
+         EXEC  CICS INQUIRE SYSTEM RELEASE(CICS_Release)
+*
+         CLC   CICS_Release,=CL4'0660'
+* CC 1 indicates current release is below 0660 - or CICS TS 4.1
+         BO    CICS_REL_WARN
+         B     CICS_REL_OK
+*
+CICS_REL_WARN DS 0H
+         WTO   'XXXXXXX1W Invalid CICS release. Requires CICS TS 4.1+'
+*
+CICS_REL_OK DS 0H
+         MVC   TRUE_P1,Clear50
+         MVC   TRUE_P2,Clear50
+         MVC   TRUE_P3,Clear50
+         MVC   TRUE_P4,Clear50
+         MVC   TRUE_P5,Clear50
+         MVC   TRUE_P6,=CL6'      '
+         MVC   TRUE_Parms+0(15),=CL16'BBOC START_TRUE '
+         LA    R2,256
+         STH   R2,TRUE_Parms_L
+*
+         EXEC  CICS LINK PROGRAM('BBOACNTL')                           X
+               COMMAREA(TRUE_Parms)                                    X
+               LENGTH(TRUE_Parms_L) NOHANDLE
+*
+         CLC   EIBRESP,=F'0'
+         BE    TRUE_Start_CkNext
+         WTO   'XXXXXXX1E Error in OLA Start TRUE request. Check BBOQ.'
+         B     Return
+TRUE_Start_CkNext DS 0H
+         CLC   TRUE_Parms(9),=CL9'BBOA8099E'
+         BNE   TRUE_Start_Ok
+         WTO   'XXXXXXX2E Error in OLA Start TRUE request. Check BBOQ.'
+         B     Return
+*
+TRUE_Start_Ok DS 0H
+         WTO   'XXXXXXX2I WAS z/OS OLA CICS TRUE enabled.'
+*
+* --------------------------------------------------------------------
+*
+* Return:  Exit program
+*
+* --------------------------------------------------------------------
+Return_OK DS  0H
+         WTO   'XXXXXXX23 WAS z/OS OLA CICS PLT init ending.'
+*
+Return   DS  0H
+         DFHEIRET
+*
+* ---------------------------------------------------------------------
+*
+* Constants/Literals/Variables/Data definitions
+*
+* ---------------------------------------------------------------------
+         DS     0F
+Clear50  DC CL50'                                                  '
+         DS     0F
+*
+DFHEISTG DSECT
+         DS     0F
+         DFHEISTG                      EXTENDED SAVE AREA FOR CICS
+TRUE_Parms DS 0D
+TRUE_P1    DS CL50
+TRUE_P2    DS CL50
+TRUE_P3    DS CL50
+TRUE_P4    DS CL50
+TRUE_P5    DS CL50
+TRUE_P6    DS CL6
+           DS 0F
+TRUE_Parms_L DS H
+CICS_Release      DS CL4
+*
+EISTGLEN EQU *-DFHEISTG
+*
+         DFHEIEND
+*
+         END   BBOACPLT
+//LKED.SYSLMOD DD DSN=<TARGET.LMOD.DSN>,DISP=SHR
+//LKED.SYSIN DD *
+   MODE AMODE(31),RMODE(ANY)
+   NAME BBOACPLT(R)

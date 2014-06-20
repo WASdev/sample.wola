@@ -1,0 +1,183 @@
+//OLAPL3  JOB (),'ME',
+//   MSGCLASS=H,NOTIFY=&SYSUID
+//*
+//* BUILD SAMPLE PLTPI MODULE FOR TESTING OLA
+//*
+//* Copyright IBM Corporation 2010,2014
+//*                                                                       
+//* LICENSE: Apache License
+//*          Version 2.0, January 2004
+//*          http://www.apache.org/licenses/
+//*
+//KIXPROC JCLLIB ORDER=<CICS.SDFHPROC>
+//*
+//CMP1 EXEC DFHEITAL,INDEX='<CICSTSxx.CICS>',
+//        DSCTLIB='<CICS.SDFHMAC>'
+//TRN.SYSIN  DD *
+*ASM XOPTS(CICS,SP,NOPROLOG,NOEPILOG)
+         TITLE 'BBOACPL3 - WAS Optimized Local Adapters CICS PLTPI 3'
+*/*START OF SPECIFICATIONS ********************************************
+*
+* DESCRIPTIVE-NAME: WAS z/OS Optimized Adapters CICS PLT Init program
+*                   Support EC LINK BBOACNTL to issue multiple OLA
+*                   commands during CICS startup
+*
+* CSECT NAME: BBOACPL3
+*
+* FUNCTION:  Run as CICS PLTPI program and complete BBOC requests -
+*            to do EXEC CICS LINK BBOACNTL issuing multiple requests
+*
+*END OF SPECIFICATIONS ***********************************************/
+*
+         DFHREGS  ,
+BBOACPL3 AMODE 31
+BBOACPL3 RMODE ANY
+BBOACPL3 CSECT
+*
+         DFHEIENT CODEREG=11,EIBREG=10
+*
+         WTO   'XXXXXX31I WAS z/OS OLA CICS PLT init 3 start.'
+*
+*---------------------------------------------------------------------
+* Address the EIB.
+* This is needed, because EIBREG above is giving us the USER EIB
+* but we are compiled to use the SYSTEM EIB.
+*---------------------------------------------------------------------
+
+         EXEC CICS ADDRESS EIB(DFHEIBR)
+*
+         EXEC  CICS INQUIRE SYSTEM RELEASE(CICS_Release)
+*
+         CLC   CICS_Release,=CL4'0660'
+* CC 1 indicates current release is below 0660 - or CICS TS 4.1
+         BO    CICS_REL_WARN
+         B     CICS_REL_OK
+*
+CICS_REL_WARN DS 0H
+         WTO   'XXXXXX31W Invalid CICS release. Requires CICS TS 4.1+'
+*
+CICS_REL_OK DS 0H
+*
+* Move Command 1 into BBOC_Parms
+*
+         MVC   BBOC_TX,=CL5'BBOC '
+         MVC   BBOC_PCMD,BBOC_Cmd1
+         LA    R2,250
+         STH   R2,BBOC_Parms_L
+*
+* Issue command 1
+*
+*
+         EXEC  CICS LINK PROGRAM('BBOACNTL')                           X
+               COMMAREA(BBOC_Parms)                                    X
+               LENGTH(BBOC_Parms_L) NOHANDLE
+*
+         CLC   EIBRESP,=F'0'
+         BE    BBOC_Req_CkNext
+         WTO   'XXXXXX31E Error in OLA BBOC request. Check BBOQ.'
+         B     Return
+*
+BBOC_Req_CkNext DS 0H
+*
+* Move Command 2 into BBOC_Parms
+*
+         MVC   BBOC_TX,=CL5'BBOC '
+         MVC   BBOC_PCMD,BBOC_Cmd2
+         LA    R2,250
+         STH   R2,BBOC_Parms_L
+*
+* Issue command 2
+*
+*
+         EXEC  CICS LINK PROGRAM('BBOACNTL')                           X
+               COMMAREA(BBOC_Parms)                                    X
+               LENGTH(BBOC_Parms_L) NOHANDLE
+*
+         CLC   EIBRESP,=F'0'
+         BE    BBOC_Req_OK
+         WTO   'XXXXXX32E Error in OLA BBOC request. Check BBOQ.'
+         B     Return
+*
+BBOC_Req_CkNext2 DS 0H
+         WTO   'BBOA9941I WAS z/OS OLA CICS Request Successful.'
+*
+* Look for a BBOAxxxxE error message back from BBOC. If yes there was
+* an error. Indicate this and return.
+*
+         CLI   BBOC_Parms+8,C'E'
+         BNE   BBOC_Req_Ok
+         WTO   'XXXXXX33E Error in OLA BBOC request. Check BBOQ.'
+         B     Return
+*
+BBOC_Req_Ok DS 0H
+         WTO   'XXXXXX32I WAS z/OS OLA CICS Request Successful.'
+*
+* --------------------------------------------------------------------
+*
+* Return:  Exit program
+*
+* --------------------------------------------------------------------
+Return_OK DS  0H
+         WTO   'XXXXXX33I WAS z/OS OLA CICS PLT init 3 ending.'
+*
+Return   DS  0H
+         DFHEIRET
+*
+* ---------------------------------------------------------------------
+*
+* Constants/Literals/Variables/Data definitions
+*
+* ---------------------------------------------------------------------
+REG_ON   EQU  X'80'
+SRVR_ON  EQU  X'40'
+         DS     0F
+Clear50  DC CL50'                                                  '
+BBOC_Cmd1 DS 0CL250
+Cmd1a    DC CL50'STA RGN=OUTTRAN1 DGN=WAS00 NDN=NDN1 SVN=BBOS001   '
+Cmd1b    DC CL50'TXN=Y SEC=N SVC=* TRC=2 MXC=10 MNC=1              '
+Cmd1c    DC CL50'                                                  '
+Cmd1d    DC CL50'                                                  '
+Cmd1e    DC CL50'                                                  '
+*
+BBOC_Cmd2 DS 0CL250
+Cmd2a    DC CL50'STA RGN=OUTTRAN2 DGN=WAS00 NDN=NDN1 SVN=BBOS001   '
+Cmd2b    DC CL50'TXN=Y SEC=N SVC=* TRC=2 MXC=10 MNC=1              '
+Cmd2c    DC CL50'                                                  '
+Cmd2d    DC CL50'                                                  '
+Cmd2e    DC CL50'                                                  '
+         DS     0F
+*
+Movedata  MVC   0(*-*,R6),0(R7)
+*
+DFHEISTG DSECT
+         DS     0F
+         DFHEISTG                      EXTENDED SAVE AREA FOR CICS
+BBOC_Parms DS 0D
+BBOC_TX    DS CL5
+BBOC_PCMD  DS 0CL250
+BBOC_P1    DS CL50
+BBOC_P2    DS CL50
+BBOC_P3    DS CL50
+BBOC_P4    DS CL50
+BBOC_P5    DS CL50
+           DS 0F
+BBOC_Parms_L DS H
+CICS_Release      DS CL4
+           DS     0F
+BBOC_data      DS CL60
+           DS     0F
+BBOC_dataLen   DS H
+           DS     0F
+Request_flags  DS X
+           DS     0F
+*
+EISTGLEN EQU *-DFHEISTG
+*
+         DFHEIEND
+*
+         END   BBOACPL3
+
+//LKED.SYSLMOD DD DSN=<TARGET.LMOD.DSN>,DISP=SHR
+//LKED.SYSIN DD *
+   MODE AMODE(31),RMODE(ANY)
+   NAME BBOACPL3(R)

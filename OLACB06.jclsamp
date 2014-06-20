@@ -1,0 +1,208 @@
+//OLACB06 JOB (),'ME',REGION=0M,                                                
+//   MSGCLASS=H,NOTIFY=&SYSUID                                                  
+//*                                                                             
+//MYPROCS JCLLIB ORDER=MVSBUILD.CICSTS32.CICS.SDFHPROC                          
+//CMP  EXEC DFHYITVL,INDEX='MVSBUILD.CICSTS32.CICS',                            
+//        PROGLIB='BOSS.OLA.SAMPLES.LOAD',                                      
+//        DSCTLIB='BOSS.OLA.SAMPLES.COPYBOOK',                                  
+//        AD370HLQ='MVSBUILD.COB340',                                           
+//        LE370HLQ='CEE'                                                        
+//TRN.SYSIN  DD  *                                                              
+      * ------------------------------------------------------------            
+      *                                                                         
+      * OLACB06.cob - Sample Cobol program that can be used under               
+      *               CICS, batch, and USS and demonstrates use          
+      *               of the Register, Invoke and Unregister
+      *               APIs.                        
+      *                                                                         
+      * Copyright IBM Corporation 2008,2014
+      *                                                                       
+      * LICENSE: Apache License
+      *          Version 2.0, January 2004
+      *          http://www.apache.org/licenses/
+      *                                                                         
+      * This sample program returns the message that was passed.                
+      *                                                                         
+      * OLACB06 is a basic Cobol sample program which is used                   
+      * to demonstrate using the primitive APIs that allow a                    
+      * CICS/batch program to call and EJB is WAS.                         
+      *                                                                         
+      * The following code is sample code created by IBM Corporation.           
+      * This sample code is not part of any standard IBM product and            
+      * is provided to you solely for the purpose of assisting you in           
+      * the development of your applications.  The code is provided             
+      * 'as is', without warranty or condition of any kind.  IBM shall          
+      * not be liable for any damages arising out of your use of the            
+      * sample code, even if IBM has been advised of the possibility            
+      * of such damages.                                                        
+      *                                                                         
+      * -------------------------------------------------------------           
+       IDENTIFICATION DIVISION.                                                 
+       PROGRAM-ID. OLACB06.                                                     
+       ENVIRONMENT DIVISION.                                                    
+       CONFIGURATION SECTION.                                                   
+       DATA DIVISION.                                                           
+       WORKING-STORAGE SECTION.                                                 
+       01 WAS-INVOKE                   PIC X(8) VALUE 'BBOA1INV'.               
+       01 reqtype                      PIC 9(8) COMP VALUE 0.                   
+       01 regdaemonname                PIC X(8) VALUE LOW-VALUES.               
+       01 rqst-area                    PIC X(100) VALUE SPACES.                 
+       01 rqst-area-addr               USAGE POINTER.                           
+       01 resp-area                    PIC X(2048) VALUE SPACES.                
+       01 resp-area-addr               USAGE POINTER.                           
+       01 expected-len                 PIC 9(8) COMP VALUE 0.                   
+       01 expected-resp-area           PIC X(100) VALUE SPACES.                 
+       01 tmp-len                      PIC 9(8) COMP VALUE 0.                   
+       01 name                         PIC X(255) VALUE SPACES.                 
+       01 servername                   PIC X(8) VALUE 'BBOS001 '.               
+       01 nodename                     PIC X(8) VALUE 'SY1     '.               
+       01 registername                 PIC X(12) VALUE 'OLACB06'.               
+       01 servicename                  PIC X(255).                              
+       01 servicenamel                 PIC 9(8) COMP.                           
+       01 rqst-len                     PIC 9(8) COMP VALUE 100.                 
+       01 resp-len                     PIC 9(8) COMP VALUE 100.                 
+       01 minconn                      PIC 9(8) COMP VALUE 1.                   
+       01 maxconn                      PIC 9(8) COMP VALUE 10.                  
+       01 waittime                     PIC 9(8) COMP VALUE 0.                   
+       01 regopts                      PIC 9(8) COMP VALUE 0.                   
+       01 urgopts                      PIC 9(8) COMP VALUE 0.                   
+       01 rc                           PIC 9(8) COMP VALUE 0.                   
+       01 rsn                          PIC 9(8) COMP VALUE 0.                   
+       01 rv                           PIC 9(8) COMP VALUE 0.                   
+       01 rc-urg                       PIC 9(8) COMP VALUE 0.                   
+       01 rsn-urg                      PIC 9(8) COMP VALUE 0.                   
+       01 TESTCASE                     PIC X(8).                                
+       01 VERBOSE                      PIC 9(8) COMP.                           
+       01 DGN                          PIC X(8).                                
+       01 RESULT                       PIC 9(8) COMP.                           
+       01 REASON                       PIC 9(8) COMP.                           
+                                                                                
+      ******************************************************************        
+      *    P R O C E D U R E S                                                  
+      ******************************************************************        
+       PROCEDURE DIVISION.                                                      
+                                                                                
+       MAINLINE SECTION.                                                        
+                                                                                
+           MOVE 'OLACB06' TO TESTCASE.                                          
+           MOVE 1 TO VERBOSE.                                                   
+           MOVE 'SY1' TO DGN.                                                   
+           MOVE 0 To RC.                                                        
+           MOVE 0 To REASON.                                                    
+                                                                                
+           Inspect DGN converting ' ' to low-values.                            
+                                                                                
+           DISPLAY "Testcase name: " TESTCASE.                                  
+           DISPLAY "Verbose      : " VERBOSE.                                   
+           DISPLAY "Daemon group : " DGN.                                       
+                                                                                
+           IF VERBOSE = 1 THEN                                                  
+             DISPLAY TESTCASE ": Entered."                                      
+           END-IF.                                                              
+                                                                                
+           MOVE DGN TO regdaemonname.                                           
+                                                                                
+      * Null pad daemon group name                                              
+                                                                                
+      *    Inspect regdaemonname converting ' ' to low-values.                  
+                                                                                
+      *                                                                         
+      * OLA REGISTER                                                            
+      *                                                                         
+           IF VERBOSE = 1 THEN                                                  
+             DISPLAY TESTCASE ": Calling Register for : " registername          
+             DISPLAY TESTCASE ": with Node name : " nodename                    
+             DISPLAY TESTCASE ": and Server name : " servername                 
+           END-IF.                                                              
+                                                                                
+           CALL 'BBOA1REG' USING regdaemonname, nodename, servername,        
+                 registername, minconn, maxconn,                                
+                 regopts, rc, rsn.                                              
+                                                                                
+           If rc > 0 Then                                                       
+             DISPLAY TESTCASE ": Bad RC/RSN from BBOA1REG: " rc "/" rsn         
+             GO TO LEAVE-OLACB06                                                
+           End-IF.                                                              
+                                                                                
+       INVOKE-WAS.                                                              
+      *                                                                         
+      * OLA INVOKE                                                              
+      *                                                                         
+           MOVE 1 TO reqtype.                                                   
+      *                                                                         
+           MOVE 'java:global/OLASampleLiberty/OLASampleLibertyEJB/EchoBe
+      -    'an!com.ibm.websphere.ola.ExecuteLocalBusiness' TO
+           servicename.
+      * Pad the service name with 0x00s so servicenamel = 0 will                
+      * result in the null-terminated length being calculated.                  
+           INSPECT servicename CONVERTING ' ' TO LOW-VALUES.                    
+      *                                                                         
+           MOVE 0 TO servicenamel.                                              
+      *                                                                         
+           MOVE 'Hello from testcase OLACB06!!' TO rqst-area.                   
+           MOVE rqst-area TO expected-resp-area.                                
+           SET rqst-area-addr TO ADDRESS OF rqst-area.                          
+           SET resp-area-addr TO ADDRESS OF resp-area.
+      * Calculate length of string in rqst-area.                                
+           INSPECT FUNCTION REVERSE(rqst-area)                                  
+      -    TALLYING tmp-len FOR LEADING SPACES.                                 
+           COMPUTE rqst-len = LENGTH OF rqst-area - tmp-len.                    
+           MOVE rqst-len TO expected-len.                                       
+      *                                                                         
+      * Make the ejb call                                                       
+      *                                                                         
+           IF VERBOSE = 1 THEN                                                  
+             DISPLAY TESTCASE ": Invoking EJB at ... " servicename              
+             DISPLAY TESTCASE ": Service name len: " servicenamel               
+           END-IF.                                                              
+                                                                                
+           CALL 'BBOA1INV' USING registername, reqtype,                         
+                 servicename,                                                   
+                 servicenamel,                                                  
+                 rqst-area-addr, rqst-len,                                      
+                 resp-area-addr, resp-len,                                      
+                 waittime, rc, rsn, rv.                                         
+                                                                                
+           If rc > 0 Then                                                       
+             DISPLAY TESTCASE ": Bad RC/RSN from BBOA1INV: " rc "/" rsn         
+             GO TO BBOA1URG
+           End-IF.                                                              
+                                                                                
+           IF VERBOSE = 1 THEN                                                  
+             DISPLAY TESTCASE ": Invoke back rc/rsn/rv: " rc " " rsn " " rv     
+             DISPLAY TESTCASE ": Response length: " rv                    
+
+             IF rv NOT EQUAL expected-len THEN                                  
+               DISPLAY "OLACB06: Unexpected response length: " rv               
+               DISPLAY "OLACB06:    was expecting: " expected-len               
+               GO TO BBOA1URG
+             END-IF                                                            
+                                                                              
+             IF resp-area NOT EQUAL expected-resp-area THEN                     
+               DISPLAY "OLACB06: Data did not match!!"                          
+             END-IF                                                            
+           END-IF.                                                              
+
+       BBOA1URG.                                                                
+      *                                                                         
+      * UNREGISTER                                                              
+      *                                                                         
+           DISPLAY "OLACB06: Calling Unregister (BBOA1URG)"                     
+                                                                                
+           CALL 'BBOA1URG' USING registername, urgopts, rc-urg, rsn-urg.        
+                                                                                
+           IF rc-urg > 0 THEN                                                   
+             DISPLAY "OLACB06: Bad BBOA1URG RC/RSN: " rc-urg "/" rsn-urg.       
+           END-IF.                                                              
+                                                                                
+       LEAVE-OLACB06.                                                           
+           MOVE rc TO RETURN-CODE.                                              
+           MOVE rc TO RESULT.                                                   
+           MOVE rsn TO REASON.                                                  
+           GOBACK.                                                              
+//LKED.SYSLIB DD DSN=BOSS.OLA91205.PERF.SBBOLOAD,DISP=SHR                       
+//            DD DSN=MVSBUILD.CICSTS32.CICS.SDFHLOAD,DISP=SHR                   
+//            DD DSN=CEE.SCEELKED,DISP=SHR                                      
+//LKED.SYSIN  DD  *                                                             
+  NAME OLACB06(R)                                                               
+/*                                                                              

@@ -1,0 +1,527 @@
+//OLACC02 JOB (),'ME',REGION=0M,                                                
+//   MSGCLASS=H,NOTIFY=&SYSUID                                                  
+//*                                                                             
+/*JOBPARM S=*                                                                   
+//*                                                                             
+//MYPROCS JCLLIB ORDER=ZOS1B0.CBC.SCCNPRC                                       
+//*                                                                             
+//CMP  EXEC EDCCB,                                                              
+// CPARM='NOSEQ NOMAR SOURCE LIST RENT',                                        
+// LNGPRFX='ZOS1B0.CBC',                                                        
+// LIBPRFX='CEE',                                                               
+// OUTFILE='BOSS.OLA.SAMPLES.LOAD(OLACC02),DISP=SHR'                            
+//*                                                                             
+//COMPILE.SYSLIB DD DSNAME=BOSS.OLA.SAMPLES.SRC,DISP=SHR                        
+//         DD  DSNAME=CEE.SCEEH.H,DISP=SHR                                      
+//         DD  DSNAME=CEE.SCEEH.SYS.H,DISP=SHR                                  
+//COMPILE.SYSIN DD DATA,DLM=@@                                                  
+ /********************************************************************/         
+ /*                                                                  */         
+ /* olacc02.c - Sample C program for demonstrating OLA APIs.         */         
+ /*                                                                  */         
+ /* Copyright IBM Corporation 2008,2014                              */
+ /*                                                                  */
+ /* LICENSE: Apache License                                          */
+ /*          Version 2.0, January 2004                               */
+ /*          http://www.apache.org/licenses/                         */
+ /*                                                                  */         
+ /* This sample program uses BBOA1SRQ to send an "inbound" request   */         
+ /* to WAS, and then uses BBOA1SRV to wait for an "outbound" call    */         
+ /* from WAS.                                                        */         
+ /*                                                                  */         
+ /* OLACC02 is a basic C sample program which is used to             */         
+ /* demonstrate the use the BBOA1SRQ/BBOA1GET to send a request to   */         
+ /* WAS, and BBOA1SRV/BBOA1SRP to setup a server waiting for calls   */         
+ /* from WAS. This sample program will run in either z/OS Batch or   */         
+ /* CICS.                                                            */         
+ /*                                                                  */         
+ /* The following code is sample code created by IBM Corporation.    */         
+ /* This sample code is not part of any standard IBM product and     */         
+ /* is provided to you solely for the purpose of assisting you in    */         
+ /* the development of your applications. The code is provided       */         
+ /* 'as is', without warranty or condition of any kind. IBM shall    */         
+ /* not be liable for any damages arising out of your use of the     */         
+ /* sample code, even if IBM has been advised of the possibility     */         
+ /* of such damages.                                                 */         
+ /*                                                                  */         
+ /********************************************************************/         
+ #include <stdio.h>                                                             
+ #include <string.h>                                                            
+ #include <stdlib.h>                                                            
+ #include <bboaapi.h>                                                           
+                                                                                
+ /* The GETARG macro makes it easier to extract and validate input              
+    arguments passed to this sample program. */                                 
+                                                                                
+ #define GETARG(varName, argNum, maxLen, padChar, dfltStr)            \         
+     if (sizeof(varName) != maxLen)                                   \         
+     {                                                                \         
+             printf("Variable must be of length %d\n", maxLen);       \         
+             return(-1);                                              \         
+     }                                                                \         
+     memset(varName,padChar,maxLen);                                  \         
+     if (argc > argNum)                                               \         
+     {                                                                \         
+         if (strlen(argv[argNum]) > maxLen)                           \         
+         {                                                            \         
+             printf("Passed argument %d is too long: \"%s\"\n",       \         
+                    argNum,argv[argNum]);                             \         
+             printf("Maximum length for this argument is %d",maxLen); \         
+             return(-1);                                              \         
+         }                                                            \         
+         memcpy(varName,argv[argNum],strlen(argv[argNum]));           \         
+     }                                                                \         
+     else                                                             \         
+     {                                                                \         
+         memcpy(varName,dfltStr,                                      \         
+                (strlen(dfltStr)<maxLen ? strlen(dfltStr):maxLen));   \         
+     }                                                                          
+                                                                                
+ #define DATA4RSP \                                                             
+     "Send this data from func hostSrv to WAS as the response!!\n"              
+ #define DATA4SRQ \                                                             
+     "Sending this data to WAS using the OLA BBOA1INV (Invoke) API"             
+                                                                                
+ struct hostSrv_args                                                            
+ {                                                                              
+     char registerName[12];                                                     
+     char hostServiceName[256];                                                 
+ };                                                                             
+                                                                                
+ /********************************************************************/         
+ /*                                                                  */         
+ /* Function hostSrv                                                 */         
+ /* Purpose: Host a Service                                          */         
+ /*                                                                  */         
+ /********************************************************************/         
+                                                                                
+ int hostSrv(struct hostSrv_args arguments)                                     
+ {                                                                              
+     int  hostServiceNameLen;                                                   
+                                                                                
+     char  requestData[256];                                                    
+     void *requestDataPtr = NULL;                                               
+     int   requestDataLen;                                                      
+     int   expected_requestLen;                                                 
+                                                                                
+     char  responseData[256];                                                   
+     void *responseDataPtr = NULL;                                              
+     int   responseDataLen;                                                     
+                                                                                
+     int rc;                                                                    
+     int rsn;                                                                   
+     int rv;                                                                    
+                                                                                
+     int waittime = 0;                                                          
+     int retval = 0;                                                            
+                                                                                
+     int data4rsplen = 0;                                                       
+                                                                                
+     char connectionHandle[12];                                                 
+                                                                                
+     data4rsplen = strlen(DATA4RSP);                                            
+                                                                                
+     /****************************************************************/         
+     /*                                                              */         
+     /* Setup and call the OLA Host a Service API (BBOA1SRV).        */         
+     /*                                                              */         
+     /****************************************************************/         
+                                                                                
+     hostServiceNameLen = strlen(arguments.hostServiceName);                    
+                                                                                
+     requestDataPtr = &requestData;                                             
+     requestDataLen = sizeof(requestData);                                      
+                                                                                
+     printf("Calling BBOA1SRV to host a service for '%s'\n",                    
+            arguments.hostServiceName);                                         
+                                                                                
+     BBOA1SRV ( &arguments.registerName                                         
+              , &arguments.hostServiceName                                      
+              , &hostServiceNameLen                                             
+              , &requestDataPtr                                                 
+              , &requestDataLen                                                 
+              , &connectionHandle                                               
+              , &waittime                                                       
+              , &rc                                                             
+              , &rsn                                                            
+              , &rv                                                             
+             );                                                                 
+                                                                                
+     if (rc == 0)                                                               
+     {                                                                          
+         expected_requestLen = strlen(DATA4SRQ) + 1; /* + 1 for NULL */         
+         if (rv == expected_requestLen)                                         
+         {                                                                      
+             printf("Host service length matches expected: %d\n",rv);           
+             if (!memcmp(requestData, DATA4SRQ, expected_requestLen))           
+             {                                                                  
+                 printf("Host service data matches expected\n");                
+             }                                                                  
+             else                                                               
+             {                                                                  
+                 printf("SRV error! Did not recv the expected data\n");         
+                 retval = -1;                                                   
+             }                                                                  
+         }                                                                      
+         else                                                                   
+         {                                                                      
+             printf("SRV error! received %d bytes, expected %d\n",              
+                    rv,expected_requestLen);                                    
+             retval = -1;                                                       
+         }                                                                      
+     }                                                                          
+     else                                                                       
+     {                                                                          
+         printf("Host a Service error! rc: %d rsn: %d rv: %d\n",                
+                rc,rsn,rv);                                                     
+         retval = -1;                                                           
+     }                                                                          
+                                                                                
+     /****************************************************************/         
+     /*                                                              */         
+     /* Setup and call the OLA Send Response API (BBOA1RSP).         */         
+     /*                                                              */         
+     /****************************************************************/         
+                                                                                
+     if (retval == 0)                                                           
+     {                                                                          
+         strncpy(responseData, DATA4RSP, sizeof(responseData));                 
+         responseDataPtr = &responseData;                                       
+         responseDataLen = data4rsplen + 1; /* + 1 includes NULL */             
+                                                                                
+         printf("Calling Send Response, sending %d bytes...\n",                 
+                responseDataLen);                                               
+                                                                                
+         BBOA1SRP ( &connectionHandle                                           
+                  , &responseDataPtr                                            
+                  , &responseDataLen                                            
+                  , &rc                                                         
+                  , &rsn                                                        
+                 );                                                             
+                                                                                
+         if (rc != 0)                                                           
+         {                                                                      
+           printf("Send Response error! rc: %d rsn: %d\n",rc,rsn);              
+           retval = -1;                                                         
+         }                                                                      
+     }                                                                          
+                                                                                
+     /****************************************************************/         
+     /*                                                              */         
+     /* Setup and call the OLA Connection Release API (BBOA1CNR).    */         
+     /*                                                              */         
+     /****************************************************************/         
+                                                                                
+     BBOA1CNR (  &connectionHandle                                              
+               , &rc                                                            
+               , &rsn                                                           
+              );                                                                
+                                                                                
+     if (rc != 0)                                                               
+     {                                                                          
+         printf("Connection Release error! rc: %d rsn: %d\n",rc,rsn);           
+         retval = -1;                                                           
+     }                                                                          
+                                                                                
+     return(retval);                                                            
+ }                                                                              
+                                                                                
+ /********************************************************************/         
+ /*                                                                  */         
+ /* OLACC02 parameters:                                              */         
+ /*   argv[0]  - program name                                        */         
+ /*   argv[1]  - WAS daemon group name (max 8 chars, defaults to SY1)*/         
+ /*   argv[2]  - WAS node name (max 8 chars, defaults to SY1)        */         
+ /*   argv[3]  - WAS server name (default: BBOS001)                  */         
+ /*   argv[4]  - Host Service name (default: SampleService)          */         
+ /*                                                                  */         
+ /********************************************************************/         
+                                                                                
+ #define serviceJNDIname "java:global/OLASampleLiberty/OLASampleLiber"\
+                         "tyEJB/RoundTripBean!com.ibm.websphere.ola.E"\
+                         "xecuteLocalBusiness"             
+                                                                                
+ int main(int argc, char *argv[])                                               
+ {                                                                              
+     char daemonGroupName[8];                                                   
+     char nodeName[8];                                                          
+     char serverName[8];                                                        
+     char registerName[12] = "OLACC02     ";                                    
+     char hostServiceName[256];                                                 
+                                                                                
+     int minConn= 1;                                                            
+     int maxConn= 5;                                                            
+     char connectionHandle[12];                                                 
+                                                                                
+     _REGFLAGS   regFlags= {0x00,0x00,0x00,0x00};                               
+     _UNREGFLAGS unregFlags= {0x00,0x00,0x00,0x00};                             
+                                                                                
+     int  requestType;                                                          
+     int  requestServiceNameLen;                                                
+     char requestServiceName[256];                                              
+                                                                                
+     char  requestData[256];                                                    
+     void *requestDataPtr = NULL;                                               
+     int   requestDataLen;                                                      
+                                                                                
+     char  responseData[256];                                                   
+     void *responseDataPtr = NULL;                                              
+     int   responseLen;                                                         
+     int   expected_responseLen;                                                
+     int   tmp_responseLen;                                                     
+                                                                                
+     int rc;                                                                    
+     int rsn;                                                                   
+     int rv;                                                                    
+                                                                                
+     int asyncSRQ = 1;                                                          
+     int asyncRCL = 0;                                                          
+     int waittime = 0;                                                          
+     int errorFlag = 0;                                                         
+     struct hostSrv_args arguments;                                             
+     int data4srqlen;                                                           
+                                                                                
+     data4srqlen = strlen(DATA4SRQ);                                            
+                                                                                
+     /* Handle input arguments. */                                              
+                                                                                
+     if (argc > 5)                                                              
+     {                                                                          
+         printf("Too many arguments\n");                                        
+         return(-1);                                                            
+     }                                                                          
+                                                                                
+     GETARG(daemonGroupName, 1, 8, 0x00, "SY1");                                
+     GETARG(nodeName, 2, 8, ' ', "SY1");                                        
+     GETARG(serverName, 3, 8, ' ', "BBOS001");                                  
+     GETARG(hostServiceName, 4, 256, 0x00, "SampleService");                    
+                                                                                
+     /****************************************************************/         
+     /*                                                              */         
+     /* Setup and call the OLA Register API (BBOA1REG).              */         
+     /*                                                              */         
+     /****************************************************************/         
+                                                                                
+     regFlags.reg_flag_trans = 0;         /* Turn transaction off    */         
+     regFlags.reg_flag_W2Cprop = 0;       /* Turn security off       */         
+                                                                                
+     BBOA1REG (  &daemonGroupName                                               
+               , &nodeName                                                      
+               , &serverName                                                    
+               , &registerName                                                  
+               , &minConn                                                       
+               , &maxConn                                                       
+               , &regFlags                                                      
+               , &rc                                                            
+               , &rsn                                                           
+              );                                                                
+                                                                                
+     if (rc != 0)                                                               
+     {                                                                          
+         printf("Register error! rc: %d rsn: %d\n",rc,rsn);                     
+         return(-1);                                                            
+     }                                                                          
+                                                                                
+     /****************************************************************/         
+     /*                                                              */         
+     /* Setup and call the OLA Connection Get API (BBOA1CNG).        */         
+     /*                                                              */         
+     /****************************************************************/         
+                                                                                
+     BBOA1CNG (  &registerName                                                  
+               , &connectionHandle                                              
+               , &waittime                                                      
+               , &rc                                                            
+               , &rsn                                                           
+              );                                                                
+                                                                                
+     if (rc != 0)                                                               
+     {                                                                          
+         printf("Connection Get error! rc: %d rsn: %d\n",rc,rsn);               
+         return(-1);                                                            
+     }                                                                          
+                                                                                
+     /****************************************************************/         
+     /*                                                              */         
+     /* Setup and call the OLA Send Request API (BBOA1SRQ).          */         
+     /*                                                              */         
+     /****************************************************************/         
+     strncpy(requestServiceName,                                                
+             serviceJNDIname,                                                   
+             sizeof(requestServiceName));                                       
+     requestServiceNameLen = 0;    /* Service name is null terminated*/         
+                                                                                
+     strncpy(requestData, DATA4SRQ, sizeof(requestData));                       
+     requestDataPtr = &requestData;                                             
+     requestDataLen = data4srqlen + 1; /* + 1 for NULL char */                  
+                                                                                
+     printf("Calling Send Request to %s\n", requestServiceName);                
+                                                                                
+     requestType = 1;           /* Request Type: EJB */                         
+                                                                                
+     BBOA1SRQ (  &connectionHandle                                              
+               , &requestType                                                   
+               , &requestServiceName                                            
+               , &requestServiceNameLen                                         
+               , &requestDataPtr                                                
+               , &requestDataLen                                                
+               , &asyncSRQ                                                      
+               , &tmp_responseLen                                               
+               , &rc                                                            
+               , &rsn                                                           
+              );                                                                
+                                                                                
+     if (rc != 0)                                                               
+     {                                                                          
+         printf("Send Request error! rc: %d rsn: %d\n",rc,rsn);                 
+         errorFlag = -1;                                                        
+     }                                                                          
+                                                                                
+     /****************************************************************/         
+     /*                                                              */         
+     /* Call hostSrv() to receive outbound call                      */         
+     /*                                                              */         
+     /****************************************************************/         
+                                                                                
+     if (!errorFlag)                                                            
+     {                                                                          
+         memcpy(arguments.registerName, registerName,                           
+                sizeof(registerName));                                          
+         memcpy(arguments.hostServiceName, hostServiceName,                     
+                sizeof(hostServiceName));                                       
+         errorFlag = hostSrv(arguments);                                        
+     }                                                                          
+                                                                                
+     /****************************************************************/         
+     /*                                                              */         
+     /* Setup and call the OLA Receive Response Length API (BBOA1RCL)*/         
+     /*                                                              */         
+     /****************************************************************/         
+                                                                                
+     if (!errorFlag)                                                            
+     {                                                                          
+         BBOA1RCL (  &connectionHandle                                          
+                   , &asyncRCL                                                  
+                   , &responseLen                                               
+                   , &rc                                                        
+                   , &rsn                                                       
+                  );                                                            
+                                                                                
+         if (rc == 0)                                                           
+         {                                                                      
+             expected_responseLen = strlen(DATA4RSP) + 1;                       
+                                                                                
+             if (responseLen == expected_responseLen)                           
+             {                                                                  
+                 printf("RCL response length matches expected, %d\n",           
+                        responseLen);                                           
+             }                                                                  
+             else                                                               
+             {                                                                  
+                 printf("RCL error! received %d bytes, expected %d\n",          
+                        responseLen,expected_responseLen);                      
+                 errorFlag = -1;                                                
+             }                                                                  
+         }                                                                      
+         else                                                                   
+         {                                                                      
+             printf("Receive Response Length error! rc: %d rsn: %d\n",          
+                    rc,rsn);                                                    
+             errorFlag = -1;                                                    
+         }                                                                      
+     }                                                                          
+                                                                                
+     /****************************************************************/         
+     /*                                                              */         
+     /* Setup and call the OLA Get Data API (BBOA1GET).              */         
+     /*                                                              */         
+     /****************************************************************/         
+                                                                                
+     if (!errorFlag)                                                            
+     {                                                                          
+         memset(responseData, 0x00, sizeof(responseData));                      
+         responseDataPtr = &responseData;                                       
+                                                                                
+         BBOA1GET (  &connectionHandle                                          
+                   , &responseDataPtr                                           
+                   , &responseLen                                               
+                   , &rc                                                        
+                   , &rsn                                                       
+                   , &rv                                                        
+                  );                                                            
+                                                                                
+         if (rc == 0)                                                           
+         {                                                                      
+             if (rv == expected_responseLen)                                    
+             {                                                                  
+                 if (!memcmp(responseData, DATA4RSP,                            
+                     expected_responseLen))                                     
+                 {                                                              
+                     printf("Get data matches expected\n");                     
+                 }                                                              
+                 else                                                           
+                 {                                                              
+                     printf("GET error! Did not recv expected data\n");         
+                     errorFlag = -1;                                            
+                 }                                                              
+             }                                                                  
+             else                                                               
+             {                                                                  
+                 printf("GET error! received %d bytes, expected %d\n",          
+                        rv,expected_responseLen);                               
+                 errorFlag = -1;                                                
+             }                                                                  
+         }                                                                      
+         else                                                                   
+         {                                                                      
+             printf("Get Data error! rc: %d rsn: %d\n",rc,rsn);                 
+             errorFlag = -1;                                                    
+         }                                                                      
+     }                                                                          
+                                                                                
+     /****************************************************************/         
+     /*                                                              */         
+     /* Setup and call the OLA Connection Release API (BBOA1CNR).    */         
+     /*                                                              */         
+     /****************************************************************/         
+                                                                                
+     BBOA1CNR (  &connectionHandle                                              
+               , &rc                                                            
+               , &rsn                                                           
+              );                                                                
+                                                                                
+     if (rc != 0)                                                               
+     {                                                                          
+         printf("Connection Release error! rc: %d rsn: %d\n", rc, rsn);         
+         errorFlag = -1;                                                        
+     }                                                                          
+                                                                                
+     /****************************************************************/         
+     /*                                                              */         
+     /* Setup and call the OLA Unregister API (BBOA1URG).            */         
+     /*                                                              */         
+     /****************************************************************/         
+                                                                                
+     BBOA1URG (  &registerName                                                  
+               , &unregFlags                                                    
+               , &rc                                                            
+               , &rsn                                                           
+              );                                                                
+                                                                                
+     if (rc != 0)                                                               
+     {                                                                          
+         printf("Unregister error! rc: %d rsn: %d\n",rc,rsn);                   
+         errorFlag = -1;                                                        
+     }                                                                          
+                                                                                
+     return(errorFlag);                                                         
+ }                                                                              
+@@                                                                              
+//BIND.SYSLIB DD DSN=CEE.SCEELKEX,DISP=SHR                                      
+//            DD DSN=CEE.SCEELKED,DISP=SHR                                      
+//            DD DSN=MVSBUILD.CICSTS31.CICS.SDFHLOAD,DISP=SHR                   
+//            DD DSN=BOSS.OLA90902.SBBOLOAD,DISP=SHR                            
+//BIND.SYSIN  DD  *                                                             
+  INCLUDE SYSLIB(DFHELII)                                                       
+  NAME OLACC02(R)                                                               
+/*                                                                              

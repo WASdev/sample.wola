@@ -1,0 +1,769 @@
+//OLAUTIL  JOB (),'ME',                                                         
+//   MSGCLASS=H,NOTIFY=&SYSUID                                                  
+//*-------------------------------------------------------------------          
+//*                                                                             
+//*  WAS on z/OS CICS utility panel                                             
+//*                                                                             
+//*-------------------------------------------------------------------          
+//MYPROCS JCLLIB ORDER=MVSBUILD.CICSTS32.CICS.SDFHPROC                          
+//CMP  EXEC DFHYITVL,INDEX='MVSBUILD.CICSTS32.CICS',                            
+//   PARM.COB='NODYNAM,LIB,OBJECT,RENT,RES,APOST,MAP,XREF,LIST',                
+//        PROGLIB='BOSS.OLA.SAMPLES.LOAD',                                      
+//        DSCTLIB='BOSS.OLA.SAMPLES.COPYBOOK',                                  
+//        AD370HLQ='MVSBUILD.COB340',                                           
+//        LNKPARM='LIST,XREF,RENT,CALL',                                        
+//        LE370HLQ='CEE'                                                        
+//TRN.SYSIN  DD  *                                                              
+      * ------------------------------------------------------------            
+      *                                                                         
+      * olautil.cob - Sample Cobol program to serve as a driver                 
+      *               for demonstrating OLA APIs under CICS.                    
+      *                                                                         
+      * Copyright IBM Corporation 2008,2014
+      *                                                                       
+      * LICENSE: Apache License
+      *          Version 2.0, January 2004
+      *          http://www.apache.org/licenses/
+      *                                                                         
+      * This sample program uses various OLA APIs to demonstrate                
+      * interactions between CICS and WAS.                                      
+      *                                                                         
+      * OLAUTIL is a basic Cobol sample program which is used                   
+      * in conjunction with a mapset, OLAMAP, to demonstrate how                
+      * to use the APIs in a CICS environment for calling an EJB                
+      * in WAS and being called by a WAS application.                           
+      * It's designed to be used in conjunction with sample                     
+      * WAS application olaSample2.EAR                                          
+      *                                                                         
+      * The following code is sample code created by IBM Corporation.           
+      * This sample code is not part of any standard IBM product and            
+      * is provided to you solely for the purpose of assisting you in           
+      * the development of your applications.  The code is provided             
+      * 'as is', without warranty or condition of any kind.  IBM shall          
+      * not be liable for any damages arising out of your use of the            
+      * sample code, even if IBM has been advised of the possibility            
+      * of such damages.                                                        
+      *                                                                         
+      * -------------------------------------------------------------           
+       IDENTIFICATION DIVISION.                                                 
+       PROGRAM-ID. OLAUTIL.                                                     
+       ENVIRONMENT DIVISION.                                                    
+       DATA DIVISION.                                                           
+       WORKING-STORAGE SECTION.                                                 
+       01  Parm-Data.                                                           
+           05  Parm-LinkProg PIC X(8).                                          
+           05  Parm-Linknum  PIC S9(8) usage Binary.                            
+       01  Task-Count   PIC S9(5) VALUE 0 usage Display.                        
+       01  Test-Count   PIC S9(8) VALUE 0 usage Binary.                         
+       01  Wait-Time    PIC S9(8) VALUE 0 usage Binary.                         
+       01  Next-Item    PIC S9(4) VALUE 1 usage Binary.                         
+       01  Endflag      PIC X(10) VALUE spaces.                                 
+       01  Start-Txid   PIC X(4)  VALUE spaces.                                 
+       01  OLA-Senddata PIC X(40).                                              
+       01  OLA-RRSPdata PIC X(40).                                              
+       01  OLA-RRSPdatax.                                                       
+      *    05  OLA-fill     PIC X(36).                                          
+           05  OLA-RRSPdata2 PIC X(40).                                         
+       01  reqtype      PIC 9(8) COMP VALUE 0.                                  
+       01  regdaemonname PIC X(16) VALUE LOW-VALUES.                            
+       01  rqst-area    PIC X(100) VALUE SPACES.                                
+       01  rqst-area-addr USAGE POINTER.                                        
+       01  resp-area    PIC X(2048) VALUE SPACES.                               
+       01  resp-area-addr USAGE POINTER.                                        
+       01  name         PIC X(255) VALUE SPACES.                                
+       01  nodename     PIC X(8) VALUE 'SY1     '.                              
+       01  servername   PIC X(8) VALUE 'BBOS001 '.                              
+       01  registername PIC X(16) VALUE 'CICSTEST        '.                     
+       01  servicename  PIC X(255) VALUE SPACES.                                
+       01  servicenamel PIC 9(8) COMP VALUE 0.                                  
+       01  regflags     PIC 9(8) COMP VALUE 0.                                  
+       01  reg-was2cics-security-on PIC 9(8) VALUE 1.                           
+       01  reg-transactions-on      PIC 9(8) VALUE 2.                           
+       01  reg-cics2was-security-on PIC 9(8) VALUE 4.                           
+       01  unregflags   PIC 9(8) COMP VALUE 0.                                  
+       01  rqst-len     PIC 9(8) COMP VALUE 100.                                
+       01  resp-len     PIC 9(8) COMP VALUE 100.                                
+       01  minconn      PIC 9(8) COMP VALUE 1.                                  
+       01  maxconn      PIC 9(8) COMP VALUE 10.                                 
+       01  tx           PIC 9(8) COMP VALUE 0.                                  
+       01  sec          PIC 9(8) COMP VALUE 0.                                  
+       01  rc           PIC 9(8) COMP VALUE 0.                                  
+       01  rsn          PIC 9(8) COMP VALUE 0.                                  
+       01  rv           PIC 9(8) COMP VALUE 0.                                  
+       01  con-handle   PIC X(12).                                              
+       01  OLA-Regname  PIC X(12).                                              
+       01  OLA-Reg1st   PIC X(1).                                               
+       01  OLA-Servname PIC X(40).                                              
+       01  OLA-Nodename PIC X(8).                                               
+       01  OLA-Servnamel PIC 9(8) COMP VALUE 0.                                 
+       01  OLA-Srvrname PIC X(8).                                               
+       01  OLA-DaemonGname PIC X(8).                                            
+       01  OLA-Testno   PIC S9(8).                                              
+       01  OLA-Testnob  PIC S9(8) usage Binary.                                 
+       01  OLA-Testcomp PIC X(8).                                               
+       01  Call-resp-area-p usage Pointer.                                      
+       01  Container-data-p usage Pointer.                                      
+       01  Call-reqtype  PIC 9(8) COMP VALUE 0.                                 
+       01  Call-rqst-area PIC X(100) VALUE SPACES.                              
+       01  Call-resp-area PIC X(2048) VALUE SPACES.                             
+       01  Call-resp-area-e PIC X(2048) VALUE SPACES.                           
+       01  Call-name     PIC X(255) VALUE SPACES.                               
+       01  Call-rqst-len PIC 9(8) COMP VALUE 100.                               
+       01  Call-resp-len PIC 9(8) COMP VALUE 2048.                              
+       01  Call-rc       PIC 9(8) COMP VALUE 0.                                 
+       01  Call-rsn      PIC 9(8) COMP VALUE 0.                                 
+       01  Call-IsCICS   PIC 9(8) COMP VALUE 1.                                 
+       01  Call-reg-handle PIC X(100) VALUE SPACES.                             
+       01  SC-COUNT     PIC S9(8) usage Binary Value 0.                         
+       01  Switch  PIC X(1).                                                    
+       01  OLA-Container-Name PIC X(16).                                        
+       01  OLA-Channel-Name PIC X(16).                                          
+       01  RESP              PIC S9(8) COMP.                                    
+       01  RESP2             PIC S9(8) COMP.                                    
+       01  ASCIICODEPAGE     PIC 9(8) BINARY VALUE 819.                        
+       01  EBCDICCODEPAGE    PIC 9(8) BINARY VALUE 37.                          
+       01  Stat-queue PIC X.                                                    
+           88  Stat-queue-Clear  Value X'00'.                                   
+           88  Stat-queue-End    Value X'01'.                                   
+       01  MSG-Error.                                                           
+           03 FILLER       PIC X(13) VALUE ' ** ERROR ** '.                     
+           03 SC-ERRTYPE   PIC X(8)  VALUE SPACES.                              
+           03 FILLER       PIC X(5)  VALUE ' RC: '.                             
+           03 SC-RC        PIC X(8)  VALUE SPACES.                              
+           03 FILLER       PIC X(6)  VALUE ' RSN: '.                            
+           03 SC-RSN       PIC X(8)  VALUE SPACES.                              
+           03 FILLER       PIC X(1)  VALUE ' '.                                 
+           03 SC-ERRMSG1   PIC X(40)  VALUE SPACES.                             
+       01  MSG-Start-time.                                                      
+           03 FILLER       PIC X(13) VALUE ' Start time: '.                     
+           03 SC-DATE-STRT PIC X(8)  VALUE SPACES.                              
+           03 FILLER       PIC X     VALUE SPACES.                              
+           03 SC-TIME-STRT PIC X(6)  VALUE SPACES.                              
+       01  MSG-Stop-time.                                                       
+           03 FILLER       PIC X(13) VALUE ' Stop time : '.                     
+           03 SC-DATE-STOP PIC X(8)  VALUE SPACES.                              
+           03 FILLER       PIC X     VALUE SPACES.                              
+           03 SC-TIME-STOP PIC X(6)  VALUE SPACES.                              
+           03 FILLER       PIC X     VALUE SPACES.                              
+           03 SC-MSG-DONE  PIC X(4)  VALUE SPACES.                              
+           03 FILLER       PIC X(8) VALUE ' Count: '.                           
+           03 SC-COUNT-Disp PIC X(8).                                           
+      * Variables for time/date processing                                      
+       01  ABS-TIME        PIC S9(8) COMP VALUE +0.                             
+       01  TIME1           PIC X(8)  VALUE SPACES.                              
+       01  DATE1           PIC X(10) VALUE SPACES.                              
+       COPY OLAMAP.                                                             
+       COPY DFHAID.                                                             
+       LINKAGE SECTION.                                                         
+       01  DFHCOMMAREA.                                                         
+           05  Init-Switch  PIC X(1).                                           
+       01  Container-data PIC X(2048).                                          
+       PROCEDURE DIVISION.                                                      
+      *                                                                         
+            If Init-Switch not equal 'Y' Then Perform First-Run thru            
+                                            First-Run-End.                      
+      *                                                                         
+      *----------------------------------------------------------------         
+      *  Init-Switch set. Receive current screen and continue.                  
+      *----------------------------------------------------------------         
+      *                                                                         
+       Receive-Map.                                                             
+             EXEC CICS RECEIVE MAP('OLAMAP') INTO(OLAMAPI)                      
+               ASIS NOHANDLE END-EXEC.                                          
+             Move Senddati to OLA-Senddata.                                     
+             Move RRSPdati to OLA-RRSPdata.                                     
+             Move Regnamei to OLA-Regname.                                      
+             Move Reg1sti  to OLA-Reg1st.                                       
+             Move Srvnamei to OLA-Servname.                                     
+             Move Testnoi  to OLA-Testno.                                       
+             Move OLA-Testno to OLA-Testnob.                                    
+      *      Display OLA-Testnob.                                               
+             Move Testcmpi to OLA-TestComp.                                     
+             Move Srvrnami to OLA-SrvrName.                                     
+             Move Nodenami to OLA-NodeName.                                     
+             Move Dmngnami to OLA-DaemonGname.                                  
+                                                                                
+            If EIBAID = DFHPF3 Then Perform Program-Exit thru                   
+                                            Program-Exit-End.                   
+            If EIBAID = DFHPF15 Then Perform Program-Exit thru                  
+                                            Program-Exit-End.                   
+            If EIBAID = DFHCLEAR Then Perform Program-Exit thru                 
+                                            Program-Exit-End.                   
+            If EIBAID = DFHPF4 Then Perform INVOKE-SRV    thru                  
+                                            INVOKE-SRV-End.                     
+            If EIBAID = DFHPF5 Then Perform HOST-SRV      thru                  
+                                            HOST-SRV-End.                       
+            If EIBAID = DFHPF6 Then Perform SENDRPLY     thru                   
+                                            SENDRPLY-End.                       
+            If EIBAID = DFHPF17 Then Perform Status-Check thru                  
+                                            Status-Check-End.                   
+      *                                                                         
+      *----------------------------------------------------------------         
+      *  Send screen back and return to CICS psuedo-conversationally.           
+      *  (remove psuedo-conv. jtm)                                              
+      *----------------------------------------------------------------         
+      *                                                                         
+       Send-and-Return.                                                         
+             EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO) ERASE                   
+               END-EXEC                                                         
+             Move 'Y'      to Switch                                            
+            Go to Receive-Map.                                                  
+      *      EXEC CICS RETURN TRANSID('BBOC') COMMAREA(Switch)                  
+      *        END-EXEC.                                                        
+      *                                                                         
+      *----------------------------------------------------------------         
+      *  User has hit PF03 or Clear. End this program.                          
+      *----------------------------------------------------------------         
+      *                                                                         
+       Program-Exit.                                                            
+            Move 'Program Exit Requested' to M01MSGO.                           
+            EXEC CICS SEND TEXT FROM(M01MSGO)                                   
+               ERASE END-EXEC.                                                  
+            EXEC CICS RETURN END-EXEC.                                          
+       Program-Exit-End.                                                        
+      *                                                                         
+       First-Run.                                                               
+            Move Low-Values to OLAMAPO.                                         
+            EXEC CICS DELETEQ TS QUEUE('OLASTAT') NOHANDLE END-EXEC.            
+            Go to Send-and-Return.                                              
+       First-Run-End.                                                           
+      *                                                                         
+      *----------------------------------------------------------------         
+      *  User hit PF04, Do INVOKE. On return, resend this screen.               
+      *----------------------------------------------------------------         
+      *                                                                         
+       INVOKE-SRV.                                                              
+      *                                                                         
+      * Do some edit checks.                                                    
+      *                                                                         
+           If OLA-Testnob < 0 Then                                              
+              Move 'Bad test number selected- retry  ' to M01MSGO               
+              EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO)                        
+                 END-EXEC                                                       
+              Go to Send-and-Return                                             
+           End-if.                                                              
+           If OLA-Testnob > 99999 Then                                          
+              Move 'Bad test number selected- retry  ' to M01MSGO               
+              EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO)                        
+                 END-EXEC                                                       
+              Go to Send-and-Return                                             
+           End-if.                                                              
+           If OLA-Testno is not NUMERIC Then                                    
+              Move 'Bad test number selected- not numeric ' to M01MSGO          
+              EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO)                        
+                 END-EXEC                                                       
+              Go to Send-and-Return                                             
+           End-if.                                                              
+                                                                                
+      *                                                                         
+      * Obtain and format current time and date                                 
+      *                                                                         
+           EXEC CICS ASKTIME ABSTIME(ABS-TIME)                                  
+           END-EXEC.                                                            
+           EXEC CICS FORMATTIME ABSTIME(ABS-TIME)                               
+                     MMDDYYYY(DATE1)                                            
+                     TIME(TIME1)                                                
+           END-EXEC.                                                            
+           Move DATE1 TO SC-DATE-STRT.                                          
+           Move TIME1 TO SC-TIME-STRT.                                          
+                                                                                
+           If OLA-Reg1st = 'Y' THEN Perform Do-Register thru                    
+                                           Do-Register-End.                     
+      *                                                                         
+      * Make the ejb call                                                       
+      *                                                                         
+           Move 0 TO SC-COUNT.                                                  
+           Move OLA-Servname TO servicename.                                    
+           Move OLA-Regname TO registername.                                    
+           Move OLA-Senddata TO rqst-area.                                      
+                                                                                
+           EXEC CICS ASKTIME ABSTIME(ABS-TIME)                                  
+           END-EXEC.                                                            
+           EXEC CICS FORMATTIME ABSTIME(ABS-TIME)                               
+                     MMDDYYYY(DATE1)                                            
+                     TIME(TIME1)                                                
+           END-EXEC.                                                            
+           Move DATE1 TO SC-DATE-STOP.                                          
+           Move TIME1 TO SC-TIME-STOP.                                          
+                                                                                
+                                                                                
+           Move 'Invoke requested ... calling service  ' to M02MSGO.            
+                                                                                
+            EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO)                          
+               END-EXEC.                                                        
+                                                                                
+      *                                                                         
+       INVOKE-WEB.                                                              
+           ADD 1 TO SC-COUNT.                                                   
+      *                                                                         
+      * INVOKE                                                                  
+      *                                                                         
+                                                                                
+           MOVE 1 TO reqtype.                                                   
+                                                                                
+      * For now we need to pad service name with 0x00s.                         
+           Inspect servicename converting ' ' to low-values.                    
+                                                                                
+           SET rqst-area-addr TO ADDRESS OF rqst-area.                          
+           SET resp-area-addr TO ADDRESS OF resp-area.                          
+                                                                                
+           CALL 'BBOA1INV' USING registername, reqtype,                         
+                 servicename,                                                   
+                 servicenamel,                                                  
+                 rqst-area-addr, rqst-len,                                      
+                 resp-area-addr, resp-len,                                      
+                 wait-time,                                                     
+                 rc, rsn, rv.                                                   
+                                                                                
+                                                                                
+      *    Divide Rc by Rc Giving Rc.                                           
+                                                                                
+           If rc > 0 THEN                                                       
+             Move 'INVOKE  ' TO SC-ERRTYPE                                      
+             Move rc   TO SC-RC                                                 
+             Move rsn TO SC-RSN                                                 
+             Move 'BBOA1INV API call' TO SC-ERRMSG1                             
+             Move MSG-error TO M03MSGO                                          
+             EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO)                         
+               END-EXEC                                                         
+             GO TO Receive-Map                                                  
+           End-if.                                                              
+                                                                                
+           IF SC-COUNT < OLA-Testnob THEN                                       
+              GO TO INVOKE-WEB.                                                 
+                                                                                
+           EXEC CICS ASKTIME ABSTIME(ABS-TIME)                                  
+           END-EXEC.                                                            
+           EXEC CICS FORMATTIME ABSTIME(ABS-TIME)                               
+                     MMDDYYYY(DATE1)                                            
+                     TIME(TIME1)                                                
+           END-EXEC.                                                            
+           Move DATE1 TO SC-DATE-STOP.                                          
+           Move TIME1 TO SC-TIME-STOP.                                          
+           Move 'DONE' TO SC-MSG-DONE.                                          
+                                                                                
+           Move 'OLA-Container' TO OLA-Container-Name.                          
+           Move 'OLA-Channel' TO OLA-Channel-Name.                              
+      *                                                                         
+      * Place the response data into a container for code conversion.           
+      * Response is returned in ascii.                                          
+      *                                                                         
+      *    EXEC CICS PUT CONTAINER(OLA-Container-Name)                          
+      *                  CHANNEL(OLA-Channel-Name)                              
+      *                  FROMCCSID(ASCIICODEPAGE)                               
+      *                  FROM(Call-resp-area)                                   
+      *    END-EXEC.                                                            
+      *                                                                         
+      *    Set Call-resp-area-p to Address of Call-resp-area-e.                 
+                                                                                
+      *                                                                         
+      * This converts the response to ebcdic.                                   
+      *                                                                         
+      *    EXEC CICS GET CONTAINER(OLA-Container-Name)                          
+      *                  CHANNEL(OLA-Channel-Name)                              
+      *                  SET(Container-data-p)                                  
+      *                  INTOCCSID(EBCDICCODEPAGE)                              
+      *                  FLENGTH(Call-resp-len)                                 
+      *    END-EXEC.                                                            
+                                                                                
+      *    Set Address of Container-data to Container-data-p.                   
+      *    Move Container-data(1:Length of OLA-RRSPdatax)                       
+      *         to OLA-RRSPdatax.                                               
+           Move resp-area(1:Length of OLA-RRSPdatax)                            
+                to OLA-RRSPdatax.                                               
+           Display OLA-RRSPdata2.                                               
+                                                                                
+      *    Move Call-resp-area to OLA-RRSPdata.                                 
+           Move SC-COUNT       to OLA-TestComp.                                 
+           Move SC-COUNT       to SC-COUNT-Disp.                                
+                                                                                
+           Move OLA-Senddata   to Senddato.                                     
+           Move OLA-RRSPdata2  to RRSPdato.                                     
+      *    Move 'response received...' to RRSPdato.                             
+           Move OLA-Regname    to Regnameo.                                     
+           Move OLA-Servname   to Srvnameo.                                     
+           Move OLA-Testnob    to Testnoo.                                      
+           Move OLA-TestComp   to Testcmpo.                                     
+           Move OLA-SrvrName   to Srvrnamo.                                     
+           Move OLA-NodeName   to Nodenamo.                                     
+           Move OLA-DaemonGname to Dmngnamo.                                    
+           Move 'N'            to Reg1sto.                                      
+                                                                                
+           Move OLA-Senddata   to Senddati.                                     
+           Move OLA-RRSPdata2  to RRSPdati.                                     
+      *    Move 'response received...' to RRSPdati.                             
+           Move OLA-Regname    to Regnamei.                                     
+           Move OLA-Servname   to Srvnamei.                                     
+           Move OLA-Testno     to Testnoi.                                      
+           Move OLA-TestComp   to Testcmpi.                                     
+           Move OLA-SrvrName   to Srvrnami.                                     
+           Move OLA-NodeName   to Nodenami.                                     
+           Move OLA-DaemonGname to Dmngnami.                                    
+           Move 'N'            to Reg1sti.                                      
+                                                                                
+                                                                                
+           Move 'Invoke requested ... calls completed ok ' to M01MSGO.          
+           Move MSG-Start-time TO M02MSGO.                                      
+           Move MSG-Stop-time TO M03MSGO.                                       
+            EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO)                          
+               END-EXEC.                                                        
+                                                                                
+       INVOKE-SRV-End.                                                          
+      *                                                                         
+      *----------------------------------------------------------------         
+      *  User hit PF05, Do HOSTSRV. On return, resend this scrn.                
+      *----------------------------------------------------------------         
+      *                                                                         
+       HOST-SRV.                                                                
+      *                                                                         
+      * Do some edit checks.                                                    
+      *                                                                         
+           If OLA-Testnob < 0 Then                                              
+              Move 'Bad test number selected- retry  ' to M01MSGO               
+              EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO)                        
+                 END-EXEC                                                       
+              Go to Send-and-Return                                             
+           End-if.                                                              
+           If OLA-Testnob > 99999 Then                                          
+              Move 'Bad test number selected- retry  ' to M01MSGO               
+              EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO)                        
+                 END-EXEC                                                       
+              Go to Send-and-Return                                             
+           End-if.                                                              
+           If OLA-Testno is not NUMERIC Then                                    
+              Move 'Bad test number selected- not numeric ' to M01MSGO          
+              EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO)                        
+                 END-EXEC                                                       
+              Go to Send-and-Return                                             
+           End-if.                                                              
+                                                                                
+      *                                                                         
+      * Obtain and format current time and date                                 
+      *                                                                         
+           EXEC CICS ASKTIME ABSTIME(ABS-TIME)                                  
+           END-EXEC.                                                            
+           EXEC CICS FORMATTIME ABSTIME(ABS-TIME)                               
+                     MMDDYYYY(DATE1)                                            
+                     TIME(TIME1)                                                
+           END-EXEC.                                                            
+           Move DATE1 TO SC-DATE-STRT.                                          
+           Move TIME1 TO SC-TIME-STRT.                                          
+                                                                                
+           If OLA-Reg1st = 'Y' THEN Perform Do-Register thru                    
+                                           Do-Register-End.                     
+      *                                                                         
+      * Select request type 3 = Receive request.                                
+      *                                                                         
+           Move 0 TO SC-COUNT.                                                  
+           Move OLA-Servname TO servicename.                                    
+           Move OLA-Regname TO registername.                                    
+           Initialize resp-area.                                                
+                                                                                
+           Move 'Host Service request for Reg.: ' to M02MSGO(1:).               
+           Move OLA-Regname to M02MSGO(37:16).                                  
+           Move 'Serv.: ' to M02MSGO(45:20).                                    
+           Move OLA-Servname(1:18) to M02MSGO(62:).                             
+                                                                                
+            EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO)                          
+               END-EXEC.                                                        
+                                                                                
+      *                                                                         
+       HOST-WEB.                                                                
+           ADD 1 TO SC-COUNT.                                                   
+      *                                                                         
+      * Call WAS for Host Service- Receive request/Get data                     
+      *                                                                         
+                                                                                
+      * For now we need to pad service name with 0x00s.                         
+           Inspect servicename converting ' ' to low-values.                    
+                                                                                
+           SET resp-area-addr TO ADDRESS OF resp-area.                          
+           MOVE 0 TO servicenamel.                                              
+                                                                                
+           CALL 'BBOA1SRV' USING registername,                                  
+                 servicename,                                                   
+                 servicenamel,                                                  
+                 resp-area-addr, resp-len,                                      
+                 con-handle,                                                    
+                 wait-time,                                                     
+                 rc, rsn, rv.                                                   
+      *                                                                         
+           If rc > 0 THEN                                                       
+             Move 'HOSTSRV ' TO SC-ERRTYPE                                      
+             Move rc   TO SC-RC                                                 
+             Move rsn TO SC-RSN                                                 
+             Move 'BBOA1SRV API call' TO SC-ERRMSG1                             
+             Move MSG-error TO M03MSGO                                          
+             EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO)                         
+               END-EXEC                                                         
+             GO TO Receive-Map                                                  
+           End-if.                                                              
+                                                                                
+                                                                                
+           Move resp-area(1:40) to OLA-RRSPdata.                                
+           Move SC-COUNT       to OLA-TestComp.                                 
+           Move SC-COUNT       to SC-COUNT-Disp.                                
+                                                                                
+           Move OLA-Senddata   to Senddato.                                     
+      *    Move OLA-RRSPdata   to RRSPdato.                                     
+      *    Move 'request received...' to RRSPdato.                              
+           Move OLA-Regname    to Regnameo.                                     
+           Display 'Service Name after bboa1srv: ' servicename.                 
+           Move servicename    to OLA-Servname.                                 
+           Move OLA-Servname   to Srvnameo.                                     
+           Move OLA-Testnob    to Testnoo.                                      
+           Move OLA-TestComp   to Testcmpo.                                     
+           Move OLA-SrvrName   to Srvrnamo.                                     
+           Move OLA-NodeName   to Nodenamo.                                     
+           Move OLA-DaemonGname to Dmngnamo.                                    
+           Move 'N'            to Reg1sto.                                      
+                                                                                
+           Move OLA-Senddata   to Senddati.                                     
+      *    Move OLA-RRSPdata   to RRSPdati.                                     
+      *    Move 'Request received!  ' to RRSPdati.                              
+           Move OLA-Regname    to Regnamei.                                     
+           Move OLA-Servname   to Srvnamei.                                     
+           Move OLA-Testno     to Testnoi.                                      
+           Move OLA-TestComp   to Testcmpi.                                     
+           Move OLA-NodeName   to Nodenami.                                     
+           Move OLA-SrvrName   to Srvrnami.                                     
+           Move OLA-DaemonGname to Dmngnami.                                    
+           Move 'N'            to Reg1sti.                                      
+                                                                                
+           Move 'OLA-Container' TO OLA-Container-Name.                          
+           Move 'OLA-Channel' TO OLA-Channel-Name.                              
+      *                                                                         
+      * Place the response data into a container for code conversion.           
+      * Request is ascii -- we are converting to ebcdic.                        
+      *                                                                         
+           EXEC CICS PUT CONTAINER(OLA-Container-Name)                          
+                         CHANNEL(OLA-Channel-Name)                              
+                         FROMCCSID(ASCIICODEPAGE)                               
+                         FROM(OLA-RRSPdata)                                     
+           END-EXEC.                                                            
+                                                                                
+      *                                                                         
+      * This converts the request data to ebcdic                                
+      *                                                                         
+           EXEC CICS GET CONTAINER(OLA-Container-Name)                          
+                         CHANNEL(OLA-Channel-Name)                              
+                         SET(Container-data-p)                                  
+                         INTOCCSID(EBCDICCODEPAGE)                              
+                         FLENGTH(Call-resp-len)                                 
+           END-EXEC.                                                            
+           Set Address of Container-data to Container-data-p.                   
+           Move Container-data(1:Call-resp-len) to OLA-RRSPdata.                
+                                                                                
+           Display 'OLA-RRSPdata: ' OLA-RRSPdata.                               
+                                                                                
+           Move OLA-RRSPdata   to RRSPdati.                                     
+           Move OLA-RRSPdata   to RRSPdato.                                     
+                                                                                
+           Move 'Received request. Respond and hit PF6!' to M01MSGO.            
+                                                                                
+           Move MSG-Start-time TO M02MSGO.                                      
+           EXEC CICS ASKTIME ABSTIME(ABS-TIME)                                  
+           END-EXEC.                                                            
+           EXEC CICS FORMATTIME ABSTIME(ABS-TIME)                               
+                     MMDDYYYY(DATE1)                                            
+                     TIME(TIME1)                                                
+           END-EXEC.                                                            
+           Move DATE1 TO SC-DATE-STOP.                                          
+           Move TIME1 TO SC-TIME-STOP.                                          
+           Move 'DONE' TO SC-MSG-DONE.                                          
+                                                                                
+           Move MSG-Stop-time TO M03MSGO.                                       
+                                                                                
+            EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO)                          
+               END-EXEC.                                                        
+                                                                                
+       Ask-Again.                                                               
+            EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO)                          
+               END-EXEC.                                                        
+                                                                                
+             EXEC CICS RECEIVE MAP('OLAMAP') INTO(OLAMAPI)                      
+               ASIS NOHANDLE END-EXEC.                                          
+                                                                                
+             Move Senddati to OLA-Senddata.                                     
+             display 'OLA-Senddata1: ' OLA-Senddata.                            
+             Move RRSPdati to OLA-RRSPdata.                                     
+             Move Regnamei to OLA-Regname.                                      
+             Move Reg1sti  to OLA-Reg1st.                                       
+             Move Srvnamei to OLA-Servname.                                     
+             Move Testnoi  to OLA-Testno.                                       
+             Move OLA-Testno to OLA-Testnob.                                    
+             Move Testcmpi to OLA-TestComp.                                     
+             Move Srvrnami to OLA-SrvrName.                                     
+             Move Nodenami to OLA-NodeName.                                     
+             Move Dmngnami to OLA-DaemonGname.                                  
+                                                                                
+            If EIBAID not equal DFHPF6 Then                                     
+              Move 'Invalid. Enter reply and PF6 to send.' to M02MSGO           
+              Go to Ask-Again                                                   
+            End-if.                                                             
+                                                                                
+       HOST-SRV-End.                                                            
+      *                                                                         
+      *----------------------------------------------------------------         
+      *  User hit PF05, for BBOA1SRV. On return, resend this scrn.              
+      *----------------------------------------------------------------         
+      *                                                                         
+       SENDRPLY.                                                                
+      *                                                                         
+      * Select 4 = Send Reply.                                                  
+      *                                                                         
+           display 'OLA-Senddata2: ' OLA-Senddata.                              
+           Move 'OLA-Container' TO OLA-Container-Name.                          
+           Move 'OLA-Channel' TO OLA-Channel-Name.                              
+      *                                                                         
+      * Place the response data into a container for code conversion.           
+      * Response is returned in ascii.                                          
+      *                                                                         
+           EXEC CICS PUT CONTAINER(OLA-Container-Name)                          
+                         CHANNEL(OLA-Channel-Name) CHAR                         
+                         FROMCCSID(EBCDICCODEPAGE)                              
+                         FROM(OLA-Senddata)                                     
+           END-EXEC.                                                            
+                                                                                
+           display 'OLA-Senddata3: ' OLA-Senddata.                              
+      *                                                                         
+      * This converts the request data to ascii                                 
+      *                                                                         
+           EXEC CICS GET CONTAINER(OLA-Container-Name)                          
+                         CHANNEL(OLA-Channel-Name)                              
+                         SET(Container-data-p)                                  
+                         INTOCCSID(ASCIICODEPAGE)                               
+                         FLENGTH(Length Of OLA-Senddata)                        
+           END-EXEC.                                                            
+                                                                                
+           Set Address of Container-data to Container-data-p.                   
+           Move Container-data(1:Length of OLA-Senddata)                        
+                to OLA-Senddata.                                                
+                                                                                
+           display 'OLA-Senddata4: ' OLA-Senddata.                              
+                                                                                
+           Move OLA-Senddata to resp-area.                                      
+           Move 40 to resp-len.                                                 
+                                                                                
+           CALL 'BBOA1SRP' USING con-handle,                                    
+                 resp-area-addr, resp-len,                                      
+                 rc, rsn, rv.                                                   
+                                                                                
+           If rc > 0 THEN                                                       
+             Move 'INVOKE  ' TO SC-ERRTYPE                                      
+             Move rc   TO SC-RC                                                 
+             Move rsn TO SC-RSN                                                 
+             Move 'BBOA1INV API call' TO SC-ERRMSG1                             
+             Move MSG-error TO M03MSGO                                          
+             EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO)                         
+               END-EXEC                                                         
+             GO TO Receive-Map                                                  
+           End-if.                                                              
+                                                                                
+           Move 'Send Reply processed ...' to M01MSGO.                          
+            EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO)                          
+               END-EXEC.                                                        
+                                                                                
+           EXEC CICS ASKTIME ABSTIME(ABS-TIME)                                  
+           END-EXEC.                                                            
+           EXEC CICS FORMATTIME ABSTIME(ABS-TIME)                               
+                     MMDDYYYY(DATE1)                                            
+                     TIME(TIME1)                                                
+           END-EXEC.                                                            
+           Move DATE1 TO SC-DATE-STOP.                                          
+           Move TIME1 TO SC-TIME-STOP.                                          
+           Move 'DONE' TO SC-MSG-DONE.                                          
+                                                                                
+           Move MSG-Start-time TO M02MSGO.                                      
+           Move MSG-Stop-time TO M03MSGO.                                       
+                                                                                
+            EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO)                          
+               END-EXEC.                                                        
+                                                                                
+       SENDRPLY-End.                                                            
+      *                                                                         
+      *----------------------------------------------------------------         
+      *  Do the Registration call.                                              
+      *----------------------------------------------------------------         
+       Do-Register.                                                             
+      *                                                                         
+      * REGISTER                                                                
+      *                                                                         
+           Move 1 TO Call-reqtype.                                              
+                                                                                
+           Move 'Register requested ... calling WAS ...' to M01MSGO.            
+                                                                                
+            EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO)                          
+               END-EXEC.                                                        
+                                                                                
+      *    MOVE 'SY1' TO nodename.                                              
+      *    MOVE 'SY1' TO regdaemonname.                                         
+           Move OLA-DaemonGname TO regdaemonname.                               
+           Move OLA-Regname TO registername.                                    
+           Move OLA-SrvrName TO servername.                                     
+           Move OLA-NodeName TO nodename.                                       
+           Move 0 TO regflags.                                                  
+                                                                                
+      * For now we need to pad daemon group name with 0x00s.                    
+           Inspect regdaemonname converting ' ' to low-values.                  
+      *    Set propagate security from WAS to CICS.                             
+      *    *NOTE* make sure the WAS server environment                          
+      *           variable ola_cicsuser_identity_propagate                      
+      *           is also set to 1 or the register call will                    
+      *           return with an RC8/RSN21                                      
+      *    ADD reg-was2cics-security-on to regflags.                            
+      *    Set propagate security from CICS to WAS.                             
+      *    *NOTE* Asserting identity from WAS to CICS is                        
+      *           only supported with the OLA CICS Link                         
+      *           Server. Shown here as a sample for                            
+      *           setting this from Cobol only.                                 
+           ADD reg-cics2was-security-on to regflags.                            
+                                                                                
+           CALL 'BBOA1REG' USING regdaemonname, nodename,                     
+                 servername, registername, minconn, maxconn,                    
+                 regflags, rc, rsn.                                             
+                                                                                
+           If rc > 0 THEN                                                       
+             Move 'REGISTER' TO SC-ERRTYPE                                      
+             Move rc   TO SC-RC                                                 
+             Move rsn TO SC-RSN                                                 
+             Move 'Register API call' TO SC-ERRMSG1                             
+             Move MSG-error TO M03MSGO                                          
+             EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO)                         
+               END-EXEC                                                         
+             GO TO Receive-Map                                                  
+           End-if.                                                              
+                                                                                
+           Move MSG-Start-time TO M02MSGO.                                      
+            EXEC CICS SEND MAP('OLAMAP') FROM(OLAMAPO) ERASE                    
+               END-EXEC.                                                        
+      *                                                                         
+       Do-Register-End.                                                         
+                                                                                
+      *                                                                         
+      *----------------------------------------------------------------         
+      *  User hit PF10, Status Check. Readq ts OLASTAT to find out              
+      *  how many ended normally.                                               
+      *----------------------------------------------------------------         
+      *                                                                         
+       Status-Check.                                                            
+            Move 0 to Test-Count.                                               
+            Move 0 to Next-Item.                                                
+            set Stat-queue-Clear to True.                                       
+            Perform Read-Stat-Queue until Stat-queue-End.                       
+            Subtract 1 from Next-Item.                                          
+            Move Next-Item to Testnoo.                                          
+       Status-Check-End.                                                        
+      *                                                                         
+       Read-Stat-Queue.                                                         
+            Add 1 to Next-item.                                                 
+            EXEC CICS READQ TS QUEUE('OLASTAT') INTO(Endflag)                   
+               ITEM(Next-Item) NOHANDLE END-EXEC.                               
+            if eibresp not equal dfhresp(normal) then                           
+               set Stat-queue-End to True.                                      
+       Read-Stat-Queue-End.                                                     
+//LKED.SYSLIB DD DSN=MVSBUILD.CICSTS32.CICS.SDFHLOAD,DISP=SHR                   
+//            DD DSN=CEE.SCEELKED,DISP=SHR                                      
+//            DD DSN=BOSS.OLA91005.PERF.SBBOLOAD,DISP=SHR                       
+//LKED.SYSIN  DD  *                                                             
+  NAME OLAUTIL(R)                                                               

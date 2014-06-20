@@ -1,0 +1,252 @@
+//OLACB05 JOB (),'ME',                                                          
+//   MSGCLASS=H,NOTIFY=&SYSUID                                                  
+//*                                                                             
+//*  Compile Cobol CICS test program for OLA - Host Service                     
+//*                                                                             
+//*  Test invoking a CICS program and returning a response to                   
+//*  WAS usinf a COMMAREA. This a an OLA Sample.                                
+//*                                                                             
+//MYPROCS JCLLIB ORDER=MVSBUILD.CICSTS32.CICS.SDFHPROC                          
+//CMP  EXEC DFHYITVL,INDEX='MVSBUILD.CICSTS32.CICS',                            
+//        PROGLIB='BOSS.OLA.SAMPLES.LOAD',                                      
+//        DSCTLIB='BOSS.OLA.SAMPLES.COPYBOOK',                                  
+//        AD370HLQ='MVSBUILD.COB340',                                           
+//        LE370HLQ='CEE'                                                        
+//TRN.SYSIN  DD  *                                                              
+      * ------------------------------------------------------------            
+      *                                                                         
+      * OLACB05.cob - Sample Cobol program that can be used under               
+      *               CICS, batch, and USS and demonstrates use 
+      *               of the Register, Connection Get, Send Request, 
+      *               Get Data, Connection Release, and Unregister
+      *               APIs.                        
+      *                                                                         
+      * Copyright IBM Corporation 2008,2014
+      *                                                                       
+      * LICENSE: Apache License
+      *          Version 2.0, January 2004
+      *          http://www.apache.org/licenses/
+      *                                                                         
+      * This sample program returns the message that was passed.                
+      *                                                                         
+      * OLACB05 is a basic Cobol sample program which is used                   
+      * to demonstrate using the primitive APIs that allow a                    
+      * CICS/batch program to call and EJB is WAS.        
+      *                                                                         
+      * The following code is sample code created by IBM Corporation.           
+      * This sample code is not part of any standard IBM product and            
+      * is provided to you solely for the purpose of assisting you in           
+      * the development of your applications.  The code is provided             
+      * 'as is', without warranty or condition of any kind.  IBM shall          
+      * not be liable for any damages arising out of your use of the            
+      * sample code, even if IBM has been advised of the possibility            
+      * of such damages.                                                        
+      *                                                                         
+      * -------------------------------------------------------------           
+                                                                                
+      *                                                                         
+      * Module Name        OLACB05                                              
+      *                                                                         
+       IDENTIFICATION DIVISION.                                                 
+       PROGRAM-ID. OLACB05.                                                     
+                                                                                
+       ENVIRONMENT DIVISION.                                                    
+       DATA DIVISION.                                                           
+       WORKING-STORAGE SECTION.                                                 
+      *                                                                         
+       01  FILLER                            PIC X(32)  VALUE                   
+           '** Working storage starts here**'.                                  
+       01 daemonname                   PIC X(8) VALUE LOW-VALUES.               
+       01 reqtype                      PIC 9(8) COMP VALUE 0.                   
+       01 rqst-area                    PIC X(100) VALUE SPACES.                 
+       01 rqst-area-addr               USAGE POINTER.                           
+       01 resp-area                    PIC X(2048) VALUE SPACES.                
+       01 resp-area-addr               USAGE POINTER.                           
+       01 nodename                     PIC X(8) VALUE 'SY1     '.               
+       01 servername                   PIC X(8) VALUE 'BBOS001 '.               
+       01 registername                 PIC X(12) VALUE SPACES.                  
+       01 servicename                  PIC X(255).                              
+       01 minconn                      PIC 9(8) COMP VALUE 1.                   
+       01 maxconn                      PIC 9(8) COMP VALUE 10.                  
+       01 regopts                      PIC 9(8) COMP VALUE 0.                   
+       01 urgopts                      PIC 9(8) COMP VALUE 0.                   
+       01 servicenamel                 PIC 9(8) COMP.                           
+       01 rcs-rqst-area                PIC X(100) VALUE SPACES.                 
+       01 rcs-rqst-area-addr           USAGE POINTER.                           
+       01 rcs-rqst-len                 PIC 9(8) COMP VALUE 100.                 
+       01 get-rqst-area                PIC X(100) VALUE SPACES.                 
+       01 get-rqst-area-addr           USAGE POINTER.                           
+       01 srp-resp-area                PIC X(2048) VALUE SPACES.                
+       01 srp-resp-area-addr           USAGE POINTER.                           
+       01 srp-resp-len                 PIC 9(8) COMP VALUE 100.                 
+       01 waittime                     PIC 9(8) USAGE BINARY.                   
+       01 async                        PIC 9(8) USAGE BINARY.                   
+       01 expected-len                 PIC 9(8) COMP VALUE 0.                   
+       01 expected-resp-area           PIC X(100) VALUE SPACES.                 
+       01 tmp-len                      PIC 9(8) COMP VALUE 0.                   
+       01 con-handle-addr              PIC X(12) VALUE LOW-VALUES.              
+       01 rqst-len                     PIC 9(8) COMP VALUE 100.                 
+       01 resp-len                     PIC 9(8) COMP VALUE 100.                 
+       01 rc                           PIC 9(8) COMP VALUE 0.                   
+       01 rsn                          PIC 9(8) COMP VALUE 0.                   
+       01 rv                           PIC 9(8) COMP VALUE 0.                   
+       01 rc-urg                       PIC 9(8) COMP VALUE 0.                   
+       01 rsn-urg                      PIC 9(8) COMP VALUE 0.                   
+       01 rc-cnr                       PIC 9(8) COMP VALUE 0.                   
+       01 rsn-cnr                      PIC 9(8) COMP VALUE 0.                   
+                                                                                
+      *                                                                         
+       LINKAGE SECTION.                                                         
+      *                                                                         
+       PROCEDURE DIVISION.                                                      
+      *                                                                         
+      * Setup the parameters for Register API                                   
+      *                                                                         
+           MOVE 'OLACB05REG  ' TO registername.                                 
+           MOVE 'SY1' TO daemonname.                                            
+           INSPECT daemonname CONVERTING ' ' TO LOW-VALUES.                     
+      *                                                                         
+           DISPLAY "OLACB05: Calling Register (BBOA1REG)"                       
+           DISPLAY "OLACB05: Node name : " nodename                             
+           DISPLAY "OLACB05: Server name : " servername                         
+           DISPLAY "OLACB05: Register name : " registername                     
+                                                                                
+           CALL 'BBOA1REG' USING daemonname, nodename, servername,              
+                 registername, minconn, maxconn,                                
+                 regopts, rc, rsn.                                              
+                                                                                
+           IF rc > 0 THEN                                                       
+             DISPLAY "Bad RC/RSN from BBOA1REG: " rc "/" rsn                    
+             GOBACK                                                             
+           END-IF.                                                              
+                                                                                
+      *                                                                         
+      * Setup the parameters for Connection Get API                             
+      *                                                                         
+           MOVE 0 TO async.                                                     
+           MOVE 0 To waittime.                                                  
+           CALL 'BBOA1CNG' USING registername,                                  
+                 con-handle-addr,                                               
+                 waittime,                                                      
+                 rc, rsn.                                                       
+                                                                                
+      *    DISPLAY "OLACB05: Back from BBOA1CNG!: " rc "/" rsn                  
+                                                                                
+           IF rc > 0 THEN                                                       
+             DISPLAY  "OLACB05: Bad RC/RSN from BBOA1CNG: " rc "/" rsn          
+             EXIT PROGRAM                                                       
+           END-IF.                                                              
+                                                                                
+      *                                                                         
+      * Setup the parameters for Send Request API                               
+      *                                                                         
+           MOVE 1 TO reqtype.                                                   
+      *                                                                         
+           MOVE 'java:global/OLASampleLiberty/OLASampleLibertyEJB/EchoBe
+      -    'an!com.ibm.websphere.ola.ExecuteLocalBusiness' TO
+           servicename.
+      * Pad the service name with 0x00s so servicenamel = 0 will                
+      * result in the null-terminated length being calculated.                  
+           INSPECT servicename CONVERTING ' ' TO LOW-VALUES.                    
+      *                                                                         
+           MOVE 0 TO servicenamel.                                              
+      *                                                                         
+           MOVE 'Hello from testcase OLACB05!!' TO rqst-area.                   
+           MOVE rqst-area TO expected-resp-area.                                
+           SET rqst-area-addr TO ADDRESS OF rqst-area.                          
+      * Calculate length of string in rqst-area.                                
+           INSPECT FUNCTION REVERSE(rqst-area)                                  
+      -    TALLYING tmp-len FOR LEADING SPACES.                                 
+           COMPUTE rqst-len = LENGTH OF rqst-area - tmp-len.                    
+           MOVE rqst-len TO expected-len.                                       
+      *                                                                         
+           MOVE 0 TO async.                                                     
+                                                                                
+      *                                                                         
+      * Send Request -- call the ejb                                            
+      *                                                                         
+           DISPLAY "OLACB05: First call Send Request (BBOA1SRQ)".               
+           DISPLAY "OLACB05: Request area len: " rqst-len.                      
+                                                                                
+       BBOA1SRQ.                                                                
+                                                                                
+           CALL 'BBOA1SRQ' USING con-handle-addr, reqtype,                      
+                 servicename,                                                   
+                 servicenamel,                                                  
+                 rqst-area-addr, rqst-len,                                      
+                 async,                                                         
+                 tmp-len,                                                       
+                 rc, rsn.                                                       
+                                                                                
+           IF rc > 0 THEN                                                       
+             DISPLAY "OLACB05: Bad RC/RSN from BBOA1SRQ: " rc "/" rsn           
+             GO TO BBOA1CNR                                                     
+           END-IF.                                                              
+                                                                                
+           DISPLAY "OLACB05: Send Request back rc/rsn: " rc "/" rsn.            
+                                                                                
+       BBOA1GET.                                                                
+      *                                                                         
+      * Get data API call                                                       
+      *                                                                         
+           SET resp-area-addr TO ADDRESS OF resp-area.                          
+                                                                                
+      *    DISPLAY "OLACB05: Calling Get Data (BBOA1GET)".                      
+                                                                                
+           CALL 'BBOA1GET' USING con-handle-addr,                               
+                 resp-area-addr, resp-len,                                      
+                 rc, rsn, rv.                                                   
+                                                                                
+           IF rc > 0 THEN                                                       
+             DISPLAY "OLACB05: Bad RC/RSN from BBOA1GET: " rc "/" rsn           
+             GO TO BBOA1CNR                                                     
+           END-IF.                                                              
+                                                                                
+           DISPLAY "OLACB05: Get Data back rc/rsn: " rc "/" rsn.                
+           DISPLAY "OLACB05: Response length (rv) : " rv.                       
+                                                                                
+           IF rv NOT EQUAL expected-len THEN                                    
+             DISPLAY "OLACB05: Unexpected response length: " rv                 
+             DISPLAY "OLACB05:    was expecting: " expected-len                 
+             GO TO BBOA1CNR                                                     
+           END-IF.                                                              
+                                                                                
+           IF resp-area NOT EQUAL expected-resp-area THEN                       
+             DISPLAY "OLACB05: Data did not match!!"                            
+             GO TO BBOA1CNR                                                     
+           END-IF.                                                              
+                                                                                
+       BBOA1CNR.                                                                
+      *                                                                         
+      * Connection Release                                                      
+      *                                                                         
+           DISPLAY "OLACB05: Calling Connection Release (BBOA1CNR)".            
+                                                                                
+           CALL 'BBOA1CNR' USING                                                
+                 con-handle-addr,                                               
+                 rc-cnr, rsn-cnr.                                               
+                                                                                
+           If rc-cnr > 0 Then                                                   
+             DISPLAY "OLACB05: BBOA1CNR Bad RC/RSN: " rc-cnr "/" rsn-cnr.       
+           End-IF.                                                              
+                                                                                
+       BBOA1URG.                                                                
+      *                                                                         
+      * UNREGISTER                                                              
+      *                                                                         
+           DISPLAY "OLACB05: Calling Unregister (BBOA1URG)"                     
+                                                                                
+           CALL 'BBOA1URG' USING registername, urgopts, rc-urg, rsn-urg.        
+                                                                                
+           IF rc-urg > 0 THEN                                                   
+             DISPLAY "OLACB05: Bad BBOA1URG RC/RSN: " rc-urg "/" rsn-urg.       
+           END-IF.                                                              
+                                                                                
+       LEAVE-OLACB05.                                                           
+           EXEC CICS RETURN                                                     
+             END-EXEC.                                                          
+//LKED.SYSLIB DD DSN=BOSS.OLA91205.PERF.SBBOLOAD,DISP=SHR                       
+//            DD DSN=MVSBUILD.CICSTS32.CICS.SDFHLOAD,DISP=SHR                   
+//            DD DSN=CEE.SCEELKED,DISP=SHR                                      
+//LKED.SYSIN  DD  *                                                             
+  NAME OLACB05(R)                                                               

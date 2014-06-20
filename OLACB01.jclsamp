@@ -1,0 +1,77 @@
+//OLACB01 JOB (),'ME',                                                          
+//   MSGCLASS=H,NOTIFY=&SYSUID                                                  
+//*                                                                             
+//*  Compile Cobol CICS test target program for OLA                             
+//*                                                                             
+//*  Test invoking a CICS program and returning a response to                   
+//*  WAS usinf a COMMAREA. This a an OLA Sample.                                
+//*                                                                             
+//MYPROCS JCLLIB ORDER=MVSBUILD.CICSTS32.CICS.SDFHPROC                          
+//CMP  EXEC DFHYITVL,INDEX='MVSBUILD.CICSTS32.CICS',                            
+//        PROGLIB='BOSS.OLA.SAMPLES.LOAD',                                      
+//        DSCTLIB='BOSS.OLA.SAMPLES.COPYBOOK',                                  
+//        AD370HLQ='MVSBUILD.COB340',                                           
+//        LE370HLQ='CEE'                                                        
+//TRN.SYSIN  DD  *                                                              
+      * ------------------------------------------------------------            
+      *                                                                         
+      * olacb01.cob - Sample Cobol program linked to by CICS                    
+      *               Link server. Echoes back the passed message.              
+      *               Gets data and responds using a COMMAREA.                  
+      *                                                                         
+      * Copyright IBM Corporation 2008,2014
+      *                                                                       
+      * LICENSE: Apache License
+      *          Version 2.0, January 2004
+      *          http://www.apache.org/licenses/
+      *                                                                         
+      * This sample program returns the message that was passed.                
+      *                                                                         
+      * OLACB01 is a basic Cobol sample program which is used                   
+      * with OLA frontend sample programs to demonstrate the use of             
+      * the CICS Link Server for calling existing programs under                
+      * CICS from a WAS application and using a COMMAREA.                       
+      *                                                                         
+      * The following code is sample code created by IBM Corporation.           
+      * This sample code is not part of any standard IBM product and            
+      * is provided to you solely for the purpose of assisting you in           
+      * the development of your applications.  The code is provided             
+      * 'as is', without warranty or condition of any kind.  IBM shall          
+      * not be liable for any damages arising out of your use of the            
+      * sample code, even if IBM has been advised of the possibility            
+      * of such damages.                                                        
+      *                                                                         
+      * -------------------------------------------------------------           
+                                                                                
+       IDENTIFICATION DIVISION.                                                 
+       PROGRAM-ID. OLACB01.                                                     
+                                                                                
+       ENVIRONMENT DIVISION.                                                    
+       DATA DIVISION.                                                           
+       WORKING-STORAGE SECTION.                                                 
+                                                                                
+      *                                                                         
+       LINKAGE SECTION.                                                         
+      *                                                                         
+       01  DFHCOMMAREA.                                                         
+           05  MESSAGE-DATA  PIC X(80).                                         
+      *                                                                         
+       PROCEDURE DIVISION.                                                      
+      *                                                                         
+                                                                                
+           IF EIBCALEN = 0                                                      
+           THEN                                                                 
+             EXEC CICS                                                          
+                 ABEND                                                          
+                 ABCODE('ECB1')                                                 
+             END-EXEC                                                           
+           END-IF.                                                              
+                                                                                
+           DISPLAY MESSAGE-DATA.                                                
+                                                                                
+           EXEC CICS RETURN END-EXEC.                                           
+                                                                                
+           GOBACK.                                                              
+                                                                                
+//LKED.SYSIN  DD  *                                                             
+  NAME OLACB01(R)                                                               

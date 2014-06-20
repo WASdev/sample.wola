@@ -1,0 +1,138 @@
+//OLACB12 JOB (),'ME',                                                          
+//   MSGCLASS=H,NOTIFY=&SYSUID                                                  
+//*                                                                             
+//*  Compile Cobol CICS test target program for OLA                             
+//*                                                                             
+//*  Test invoking a CICS program and returning a response to                   
+//*  WAS using a CHANNEL. This a an OLA Sample.                                 
+//*                                                                             
+//*  This test gets data in multiple containers and echoes                      
+//*  it back in the same containers.                                            
+//*                                                                             
+//MYPROCS JCLLIB ORDER=MVSBUILD.CICSTS41.CICS.SDFHPROC                          
+//CMP  EXEC DFHYITVL,INDEX='MVSBUILD.CICSTS41.CICS',                            
+//        PROGLIB='BOSS.OLA.SAMPLES.LOAD',                                
+//        DSCTLIB='BOSS.OLA.SAMPLES.COPYBOOK',                                  
+//        AD370HLQ='MVSBUILD.COB340',                                           
+//        LE370HLQ='CEE'                                                        
+//TRN.SYSIN  DD  *                                                              
+      * ------------------------------------------------------------            
+      *                                                                         
+      * OLACB12.cob - Sample Cobol program linked to by CICS                    
+      *               Link server. Deletes out all incoming data                
+      *               out of all containers in a single channel.                
+      *                                                                         
+      * Copyright IBM Corporation 2008,2014
+      *                                                                       
+      * LICENSE: Apache License
+      *          Version 2.0, January 2004
+      *          http://www.apache.org/licenses/
+      *                                                                         
+      * OLACB12 is a basic Cobol sample program which is used                   
+      * with OLA frontend sample programs to demonstrate the use of             
+      * the CICS Link Server for calling existing programs under                
+      * CICS from a WAS application and passing data in a CHANNEL.              
+      *                                                                         
+      * The following code is sample code created by IBM Corporation.           
+      * This sample code is not part of any standard IBM product and            
+      * is provided to you solely for the purpose of assisting you in           
+      * the development of your applications.  The code is provided             
+      * 'as is', without warranty or condition of any kind.  IBM shall          
+      * not be liable for any damages arising out of your use of the            
+      * sample code, even if IBM has been advised of the possibility            
+      * of such damages.                                                        
+      *                                                                         
+      * -------------------------------------------------------------           
+                                                                                
+       IDENTIFICATION DIVISION.                                                 
+       PROGRAM-ID. OLACB12.                                                     
+                                                                                
+       ENVIRONMENT DIVISION.                                                    
+       CONFIGURATION SECTION.                                                   
+       DATA DIVISION.                                                           
+       WORKING-STORAGE SECTION.                                                 
+                                                                                
+      *  Define all internal variables                                          
+      *  Data fields used by the program                                        
+       01 CHANNELNAME        PIC X(16) VALUE SPACES.                            
+       01 BTOKEN             PIC S9(8) BINARY.                                  
+                                                                                
+       01 CONTAINERNAME      PIC X(16).                                         
+       01 DATALEN            PIC S9(8) BINARY.                                  
+       01 CONTAINERDATA.                                                        
+          05 DISPBUF-FIRST   PIC X(128).                                        
+          05 DISPBUF-REMAINING   PIC X(32000).                                  
+                                                                                
+       01 RESPCODE           PIC S9(8) COMP-4.                                  
+       01 RESPCODE2          PIC S9(8) COMP-4.                                  
+                                                                                
+       LINKAGE SECTION.                                                         
+                                                                                
+       PROCEDURE DIVISION.                                                      
+       MAIN-PROCESSING SECTION.                                                 
+                                                                                
+           MOVE SPACES TO DISPBUF-FIRST.                                        
+           MOVE LENGTH OF CONTAINERDATA TO DATALEN.                             
+                                                                                
+      *  Get name of channel                                                    
+           EXEC CICS ASSIGN CHANNEL(CHANNELNAME)                                
+                            END-EXEC.                                           
+                                                                                
+      *  Print out the channel name for debug                                   
+           DISPLAY 'OLACB12 entered with channel ' CHANNELNAME.                 
+                                                                                
+      *  If no channel passed in, terminate with abend code NOCH                
+           IF CHANNELNAME = SPACES THEN                                         
+               EXEC CICS ABEND ABCODE('ERCH') NODUMP                            
+                            END-EXEC                                            
+           END-IF.                                                              
+                                                                                
+      *  Obtain the browse token to use when inspecting containers              
+           EXEC CICS STARTBROWSE CONTAINER                                      
+                     CHANNEL(CHANNELNAME)                                       
+                     BROWSETOKEN(BTOKEN)                                        
+                     END-EXEC.                                                  
+                                                                                
+                                                                                
+      *  Get the first container name                                           
+           EXEC CICS GETNEXT CONTAINER(CONTAINERNAME)                           
+                     BROWSETOKEN(BTOKEN)                                        
+                     RESP(RESPCODE)                                             
+                     RESP2(RESPCODE2)                                           
+                     END-EXEC.                                                  
+                                                                                
+      *  Loop over each of the containers in the channel                        
+           PERFORM CONTAINER-LOOP THRU CONTAINER-LOOP-END                       
+               WITH TEST BEFORE UNTIL                                           
+               RESPCODE = DFHRESP(END).                                         
+                                                                                
+      *  Finish                                                                 
+           EXEC CICS RETURN END-EXEC.                                           
+                                                                                
+           EXIT.                                                                
+                                                                                
+       CONTAINER-LOOP.                                                          
+      *  Inquire the next container for data                                    
+      *  Change this to a call to EXEC CICS GET CONTAINER...                    
+           EXEC CICS GET CONTAINER(CONTAINERNAME)                               
+                     FLENGTH(DATALEN)                                           
+                     INTO(CONTAINERDATA)                                        
+                     END-EXEC.                                                  
+                                                                                
+      *  Overlay the display buffer onto the containers data                    
+           DISPLAY 'Data Length ' DATALEN.                                      
+           DISPLAY 'Data in ' CONTAINERNAME ':'.                                
+           DISPLAY DISPBUF-FIRST.                                               
+                                                                                
+      *  Delete the container so that no data is passed back                    
+           EXEC CICS DELETE CONTAINER(CONTAINERNAME) END-EXEC.                  
+                                                                                
+      *  Get the next container                                                 
+           EXEC CICS GETNEXT CONTAINER(CONTAINERNAME)                           
+                     BROWSETOKEN(BTOKEN)                                        
+                     RESP(RESPCODE)                                             
+                     RESP2(RESPCODE2)                                           
+                     END-EXEC.                                                  
+       CONTAINER-LOOP-END.                                                      
+//LKED.SYSIN  DD  *                                                             
+  NAME OLACB12(R)                                                               

@@ -1,0 +1,223 @@
+//OLACB02 JOB (),'ME',                                                          
+//   MSGCLASS=H,NOTIFY=&SYSUID                                                  
+//*                                                                             
+//*  Compile Cobol CICS test target program for OLA                             
+//*                                                                             
+//*  Test invoking a CICS program and returning a response to                   
+//*  WAS using a CONTAINER. This a an OLA Sample.                               
+//*                                                                             
+//MYPROCS JCLLIB ORDER=MVSBUILD.CICSTS32.CICS.SDFHPROC                          
+//CMP  EXEC DFHYITVL,INDEX='MVSBUILD.CICSTS32.CICS',                            
+//        PROGLIB='BOSS.OLA.SAMPLES.LOAD',                                      
+//        DSCTLIB='BOSS.OLA.SAMPLES.COPYBOOK',                                  
+//        AD370HLQ='MVSBUILD.COB340',                                           
+//        LE370HLQ='CEE'                                                        
+//TRN.SYSIN  DD  *                                                              
+      * ------------------------------------------------------------            
+      *                                                                         
+      * olacb02.cob - Sample Cobol program linked to by CICS                    
+      *               Link server. Returns a message indicating                 
+      *               success reading from the passed container.                
+      *               Gets data and responds using a CONTAINER.                 
+      *                                                                         
+      * Copyright IBM Corporation 2008,2014
+      *                                                                       
+      * LICENSE: Apache License
+      *          Version 2.0, January 2004
+      *          http://www.apache.org/licenses/
+      *                                                                         
+      * This sample program returns the date and time.                          
+      *                                                                         
+      * OLACB02 is a basic Cobol sample program which is used                   
+      * with OLA frontend sample programs to demonstrate the use of             
+      * the CICS Link Server for calling existing programs under                
+      * CICS from a WAS application and passing data in a CONTAINER.            
+      *                                                                         
+      * The following code is sample code created by IBM Corporation.           
+      * This sample code is not part of any standard IBM product and            
+      * is provided to you solely for the purpose of assisting you in           
+      * the development of your applications.  The code is provided             
+      * 'as is', without warranty or condition of any kind.  IBM shall          
+      * not be liable for any damages arising out of your use of the            
+      * sample code, even if IBM has been advised of the possibility            
+      * of such damages.                                                        
+      *                                                                         
+      * -------------------------------------------------------------           
+                                                                                
+       IDENTIFICATION DIVISION.                                                 
+       PROGRAM-ID. OLACB02.                                                     
+                                                                                
+       ENVIRONMENT DIVISION.                                                    
+       CONFIGURATION SECTION.                                                   
+       DATA DIVISION.                                                           
+       WORKING-STORAGE SECTION.                                                 
+                                                                                
+      *  Container names                                                        
+      *  Channel and container names are case sensitive                         
+       01 DATECONTAINER      PIC X(16) VALUE 'CURRENTDATE'.                     
+       01 TIMECONTAINER      PIC X(16) VALUE 'CURRENTTIME'.                     
+       01 INPUTCONTAINER     PIC X(16) VALUE 'BBOA-WAS-CONTID'.                 
+       01 OUTPUTCONTAINER    PIC X(16) VALUE 'BBOA-WAS-CONTID'.                 
+       01 LENGTHCONTAINER    PIC X(16) VALUE 'INPUTDATALENGTH'.                 
+                                                                                
+      *  Data fields used by the program                                        
+       01 INPUTLENGTH        PIC S9(8) COMP-4.                                  
+       01 CURRENTTIME        PIC S9(15) COMP-3.                                 
+       01 CHANNELNAME        PIC X(16) VALUE SPACES.                            
+       01 OUTPUTSTRING       PIC X(72) VALUE SPACES.                            
+       01 DATESTRING         PIC X(16) VALUE SPACES.                            
+       01 TIMESTRING         PIC X(16) VALUE SPACES.                            
+       01 RESPCODE           PIC S9(8) COMP-4.                                  
+       01 RESPCODE2          PIC S9(8) COMP-4.                                  
+                                                                                
+       PROCEDURE DIVISION.                                                      
+       MAIN-PROCESSING SECTION.                                                 
+                                                                                
+      *  Get name of channel                                                    
+           EXEC CICS ASSIGN CHANNEL(CHANNELNAME)                                
+                            END-EXEC.                                           
+                                                                                
+           DISPLAY 'OLACB02 entered with channel ' CHANNELNAME.                 
+                                                                                
+      *  If no channel passed in, terminate with abend code NOCH                
+           IF CHANNELNAME = SPACES THEN                                         
+               EXEC CICS ABEND ABCODE('ERCH') NODUMP                            
+                            END-EXEC                                            
+           END-IF.                                                              
+                                                                                
+      *  Read content length of container InputData                             
+           EXEC CICS GET CONTAINER(INPUTCONTAINER)                              
+                            CHANNEL(CHANNELNAME)                                
+                            NODATA FLENGTH(INPUTLENGTH)                         
+                            INTOCCSID(037)                                      
+                            RESP(RESPCODE)                                      
+                            RESP2(RESPCODE2)                                    
+                            END-EXEC.                                           
+                                                                                
+      *  Check response code                                                    
+           EVALUATE RESPCODE                                                    
+                                                                                
+      *  Container not passed in                                                
+             WHEN DFHRESP(CONTAINERERR)                                         
+               STRING INPUTCONTAINER                                            
+                            DELIMITED BY SPACE                                  
+                      ' container was not passed to the program'                
+                            DELIMITED BY SIZE                                   
+                            INTO OUTPUTSTRING END-STRING                        
+                                                                                
+      *  Container is BIT not CHAR                                              
+             WHEN DFHRESP(CCSIDERR)                                             
+               IF RESPCODE2 = 3                                                 
+                 STRING 'Container '                                            
+                            DELIMITED BY SIZE                                   
+                        INPUTCONTAINER                                          
+                            DELIMITED BY SPACE                                  
+                        ' type is BIT, not CHAR'                                
+                            DELIMITED BY SIZE                                   
+                            INTO OUTPUTSTRING END-STRING                        
+               ELSE                                                             
+                 STRING 'The GET CONTAINER command returned an',                
+                        ' unexpected CCSIDERR condition'                        
+                            DELIMITED BY SIZE                                   
+                            INTO OUTPUTSTRING END-STRING                        
+               END-IF                                                           
+                                                                                
+      *  Read from container OK                                                 
+             WHEN DFHRESP(NORMAL)                                               
+               STRING 'OLACB02 Read from '                                      
+                            DELIMITED BY SIZE                                   
+                      INPUTCONTAINER                                            
+                            DELIMITED BY SPACE                                  
+                      ' container successfully'                                 
+                            DELIMITED BY SIZE                                   
+                            INTO OUTPUTSTRING END-STRING                        
+                                                                                
+               EXEC CICS PUT CONTAINER(LENGTHCONTAINER)                         
+                            FROM(INPUTLENGTH)                                   
+                            FLENGTH(LENGTH OF INPUTLENGTH)                      
+                            BIT RESP(RESPCODE) END-EXEC                         
+                                                                                
+               IF RESPCODE NOT = DFHRESP(NORMAL)                                
+                 EXEC CICS ABEND ABCODE('PUTC') NODUMP                          
+                            END-EXEC                                            
+               END-IF                                                           
+                                                                                
+      *  Other response code                                                    
+             WHEN OTHER                                                         
+               STRING 'The GET CONTAINER command returned an',                  
+                      ' unexpected response code'                               
+                            DELIMITED BY SIZE                                   
+                            INTO OUTPUTSTRING END-STRING                        
+                                                                                
+           END-EVALUATE.                                                        
+                                                                                
+      *  Place output string in container OutputData                            
+           EXEC CICS PUT CONTAINER(OUTPUTCONTAINER)                             
+                            FROM(OUTPUTSTRING)                                  
+                            FLENGTH(LENGTH OF OUTPUTSTRING)                     
+                            CHAR FROMCCSID(037)                                 
+                            RESP(RESPCODE)                                      
+                            END-EXEC.                                           
+                                                                                
+           DISPLAY 'OLACB02 sending string ' OUTPUTSTRING.                      
+                                                                                
+      *  Check return code                                                      
+           IF RESPCODE NOT = DFHRESP(NORMAL)                                    
+               EXEC CICS ABEND ABCODE('PUTC') NODUMP                            
+                            END-EXEC                                            
+           END-IF.                                                              
+                                                                                
+      *  Get the current time and date                                          
+           EXEC CICS ASKTIME ABSTIME(CURRENTTIME)                               
+                            END-EXEC.                                           
+                                                                                
+      *  Format date and time                                                   
+           EXEC CICS FORMATTIME ABSTIME(CURRENTTIME)                            
+                            DDMMYYYY(DATESTRING) DATESEP('/')                   
+                            TIME(TIMESTRING) TIMESEP(':')                       
+                            RESP(RESPCODE)                                      
+                            END-EXEC.                                           
+                                                                                
+      *  Check return code                                                      
+           IF RESPCODE NOT = DFHRESP(NORMAL)                                    
+               STRING 'Failed' DELIMITED BY SIZE                                
+                            INTO DATESTRING END-STRING                          
+               STRING 'Failed' DELIMITED BY SIZE                                
+                            INTO TIMESTRING END-STRING                          
+           END-IF.                                                              
+                                                                                
+      *  Place current date in container CurrentDate                            
+           EXEC CICS PUT CONTAINER(DATECONTAINER)                               
+                            FROM(DATESTRING)                                    
+                            FLENGTH(LENGTH OF DATESTRING)                       
+                            CHAR FROMCCSID(037)                                 
+                            RESP(RESPCODE)                                      
+                            END-EXEC.                                           
+                                                                                
+      *  Check return code                                                      
+           IF RESPCODE NOT = DFHRESP(NORMAL)                                    
+               EXEC CICS ABEND ABCODE('PUTC') NODUMP                            
+                            END-EXEC                                            
+           END-IF.                                                              
+                                                                                
+      *  Place current time in container CurrentTime                            
+           EXEC CICS PUT CONTAINER(TIMECONTAINER)                               
+                            FROM(TIMESTRING)                                    
+                            FLENGTH(LENGTH OF TIMESTRING)                       
+                            CHAR FROMCCSID(037)                                 
+                            RESP(RESPCODE)                                      
+                            END-EXEC.                                           
+                                                                                
+      *  Check return code                                                      
+           IF RESPCODE NOT = DFHRESP(NORMAL)                                    
+               EXEC CICS ABEND ABCODE('PUTC') NODUMP                            
+                            END-EXEC                                            
+           END-IF.                                                              
+                                                                                
+      *  Finish                                                                 
+           EXEC CICS RETURN END-EXEC.                                           
+                                                                                
+           EXIT.                                                                
+                                                                                
+//LKED.SYSIN  DD  *                                                             
+  NAME OLACB02(R)                                                               

@@ -1,0 +1,223 @@
+//OLAPL2  JOB (),'ME',
+//   MSGCLASS=H,NOTIFY=&SYSUID
+//*
+//* BUILD SAMPLE PLTPI MODULE FOR TESTING OLA
+//*
+//* Copyright IBM Corporation 2010,2014
+//*                                                                       
+//* LICENSE: Apache License
+//*          Version 2.0, January 2004
+//*          http://www.apache.org/licenses/
+//*
+//KIXPROC JCLLIB ORDER=<CICS.SDFHPROC>
+//*
+//CMP1 EXEC DFHEITAL,INDEX='<CICSTSxx.CICS>',
+//        DSCTLIB='<CICS.SDFHMAC>'
+//TRN.SYSIN  DD *
+*ASM XOPTS(CICS,SP,NOPROLOG,NOEPILOG)
+         TITLE 'BBOACPL2 - WAS Optimized Local Adapters CICS PLTPI 2'
+*/*START OF SPECIFICATIONS ********************************************
+*
+* DESCRIPTIVE-NAME: WAS z/OS Optimized Adapters CICS PLT Init program
+*                   Support Start Server and Register requests
+*
+* CSECT NAME: BBOACPL2
+*
+* FUNCTION:  Run as CICS PLTPI program and complete BBOC requests -
+*            to do Start Server or Register requests
+*
+*END OF SPECIFICATIONS ***********************************************/
+*
+         DFHREGS  ,
+BBOACPL2 AMODE 31
+BBOACPL2 RMODE ANY
+BBOACPL2 CSECT
+*
+         DFHEIENT CODEREG=11,EIBREG=10
+*
+         WTO   'XXXXXX21I WAS z/OS OLA CICS PLT init 2 start.'
+*
+*---------------------------------------------------------------------
+* Address the EIB.
+* This is needed, because EIBREG above is giving us the USER EIB
+* but we are compiled to use the SYSTEM EIB.
+*---------------------------------------------------------------------
+
+         EXEC CICS ADDRESS EIB(DFHEIBR)
+*
+         EXEC  CICS INQUIRE SYSTEM RELEASE(CICS_Release)
+*
+         CLC   CICS_Release,=CL4'0660'
+* CC 1 indicates current release is below 0660 - or CICS TS 4.1
+         BO    CICS_REL_WARN
+         B     CICS_REL_OK
+*
+CICS_REL_WARN DS 0H
+         WTO   'XXXXXX21W Invalid CICS release. Requires CICS TS 4.1+'
+*
+CICS_REL_OK DS 0H
+*
+* Extract CICS INITPARM string and look for WAS z/OS OLA
+* start data.
+*
+         EXEC CICS ASSIGN INITPARM(Init_Data)                          X
+               INITPARMLEN(Init_DataLen)
+*
+         SR    R2,R2
+         MVI   Request_Flags,X'00'
+         LH    R2,Init_DataLen
+         LTR   R2,R2
+         BNZ   Process_WAS_Data
+*
+* No INITPARM, send message and return.
+*
+         WTO   'XXXXXX22W No INITPARM data. Ending with no action.'
+         B     Return
+*
+* Found BBOACPL2 INITPARM data.  Parse and process it.
+*
+Process_WAS_Data DS 0H
+         LA      R3,Init_Data
+Parse_Loop       DS 0H
+         CLC     0(4,R3),=CL4'REG '
+         BNE     Ck_NextParm1
+         OI      Request_flags,REG_ON
+         B       Parse_Done
+Ck_NextParm1 DS 0H
+         CLC     0(9,R3),=CL9'REGISTER '
+         BNE     Ck_NextParm2
+         OI      Request_flags,REG_ON
+         B       Parse_Done
+Ck_NextParm2 DS 0H
+         CLC     0(11,R3),=CL11'START_SRVR '
+         BNE     Ck_NextParm3
+         OI      Request_flags,SRVR_ON
+         B       Parse_Done
+Ck_NextParm3 DS 0H
+         CLC     0(10,R3),=CL10'STRT_SRVR '
+         BNE     Ck_NextParm4
+         OI      Request_flags,SRVR_ON
+         B       Parse_Done
+Ck_NextParm4 DS 0H
+         CLC     0(4,R3),=CL4'STA '
+         BNE     Ck_Done
+         OI      Request_flags,SRVR_ON
+         B       Parse_Done
+Ck_Done      DS 0H
+         LA      R3,1(,R3)
+         BCT     R2,Parse_Loop
+*
+* Check to see if we found any BBOC requests.
+*
+Parse_Done   DS 0H
+         TM      Request_flags,REG_ON
+         BNO     Ck_SRVR_ON
+         WTO   'XXXXXX22I Issuing OLA REGISTER request ...'
+         B       Call_BBOC
+Ck_SRVR_ON   DS 0H
+         TM      Request_flags,SRVR_ON
+         BNO     Initparm_Error
+         WTO   'XXXXXX23I Issuing OLA START_SRVR request ...'
+         B       Call_BBOC
+*
+Initparm_Error DS 0H
+         WTO  'XXXXXX21E Bad OLA INITPARM data. Ending with no action.'
+         B     Return
+*
+Call_BBOC DS 0H
+         MVC   BBOC_TX,=CL5'BBOC '
+         MVC   BBOC_P1,Clear50
+         MVC   BBOC_P2,Clear50
+         MVC   BBOC_P3,Clear50
+         MVC   BBOC_P4,Clear50
+         MVC   BBOC_P5,Clear50
+         MVC   BBOC_P6,=CL1' '
+*
+* Move Init_Data into BBOC_Parms
+*
+         LA    R6,BBOC_P1
+         LA    R7,Init_Data
+         SR    R5,R5
+         LH    R5,Init_DataLen
+         BCTR  R5,0                  Subtract 1 before execute
+         EX    R5,Movedata
+         LA    R2,256
+         STH   R2,BBOC_Parms_L
+*
+         EXEC  CICS LINK PROGRAM('BBOACNTL')                           X
+               COMMAREA(BBOC_Parms)                                    X
+               LENGTH(BBOC_Parms_L) NOHANDLE
+*
+         CLC   EIBRESP,=F'0'
+         BE    BBOC_Req_CkNext
+         WTO   'XXXXXX23E Error in OLA BBOC request. Check BBOQ.'
+         B     Return
+*
+BBOC_Req_CkNext DS 0H
+*
+* Look for a BBOAxxxxE error message back from BBOC. If yes there was
+* an error. Indicate this and return.
+*
+         CLI   BBOC_Parms+8,C'E'
+         BNE   BBOC_Req_Ok
+         WTO   'XXXXXX24E Error in OLA BBOC request. Check BBOQ.'
+         B     Return
+*
+BBOC_Req_Ok DS 0H
+         WTO   'XXXXXX24I WAS z/OS OLA CICS Request Successful.'
+*
+* --------------------------------------------------------------------
+*
+* Return:  Exit program
+*
+* --------------------------------------------------------------------
+Return_OK DS  0H
+         WTO   'XXXXXX25I WAS z/OS OLA CICS PLT init 2 ending.'
+*
+Return   DS  0H
+         DFHEIRET
+*
+* ---------------------------------------------------------------------
+*
+* Constants/Literals/Variables/Data definitions
+*
+* ---------------------------------------------------------------------
+REG_ON   EQU  X'80'
+SRVR_ON  EQU  X'40'
+         DS     0F
+Clear50  DC CL50'                                                  '
+         DS     0F
+*
+Movedata  MVC   0(*-*,R6),0(R7)
+*
+DFHEISTG DSECT
+         DS     0F
+         DFHEISTG                      EXTENDED SAVE AREA FOR CICS
+BBOC_Parms DS 0D
+BBOC_TX    DS CL5
+BBOC_P1    DS CL50
+BBOC_P2    DS CL50
+BBOC_P3    DS CL50
+BBOC_P4    DS CL50
+BBOC_P5    DS CL50
+BBOC_P6    DS CL1
+           DS 0F
+BBOC_Parms_L DS H
+CICS_Release      DS CL4
+           DS     0F
+Init_Data      DS CL60
+           DS     0F
+Init_DataLen   DS H
+           DS     0F
+Request_flags  DS X
+           DS     0F
+*
+EISTGLEN EQU *-DFHEISTG
+*
+         DFHEIEND
+*
+         END   BBOACPL2
+//LKED.SYSLMOD DD DSN=<TARGET.LMOD.DSN>,DISP=SHR
+//LKED.SYSIN DD *
+   MODE AMODE(31),RMODE(ANY)
+   NAME BBOACPL2(R)

@@ -1,0 +1,154 @@
+//OLACB03 JOB (),'ME',                                                          
+//   MSGCLASS=H,NOTIFY=&SYSUID                                                  
+//*                                                                             
+//*  Compile Cobol CICS test program for OLA - Host Service                     
+//*                                                                             
+//*  Test invoking a CICS program and returning a response to                   
+//*  WAS usinf a COMMAREA. This a an OLA Sample.                                
+//*                                                                             
+//MYPROCS JCLLIB ORDER=MVSBUILD.CICSTS32.CICS.SDFHPROC                          
+//CMP  EXEC DFHYITVL,INDEX='MVSBUILD.CICSTS32.CICS',                            
+//        PROGLIB='BOSS.OLA.SAMPLES.LOAD',                                      
+//        DSCTLIB='BOSS.OLA.SAMPLES.COPYBOOK',                                  
+//        AD370HLQ='MVSBUILD.COB340',                                           
+//        LE370HLQ='CEE'                                                        
+//TRN.SYSIN  DD  *                                                              
+      * ------------------------------------------------------------            
+      *                                                                         
+      * olacb03.cob - Sample Cobol program that can be used under               
+      *               CICS, batch, or USS and demonstrates use               
+      *               of the Host Service API.              
+      *                                                                         
+      * Copyright IBM Corporation 2008,2014
+      *                                                                       
+      * LICENSE: Apache License
+      *          Version 2.0, January 2004
+      *          http://www.apache.org/licenses/
+      *                                                                         
+      * This sample program returns the message that was passed.                
+      *                                                                         
+      * OLACB03 is a basic Cobol sample program which is used                   
+      * to demonstrate using the Host Service API from a 
+      * CICS/batch program.                                      
+      *                                                                         
+      * The following code is sample code created by IBM Corporation.           
+      * This sample code is not part of any standard IBM product and            
+      * is provided to you solely for the purpose of assisting you in           
+      * the development of your applications.  The code is provided             
+      * 'as is', without warranty or condition of any kind.  IBM shall          
+      * not be liable for any damages arising out of your use of the            
+      * sample code, even if IBM has been advised of the possibility            
+      * of such damages.                                                        
+      *                                                                         
+      * -------------------------------------------------------------           
+                                                                                
+      *                                                                         
+      * Module Name        OLACB03                                              
+      *                                                                         
+       IDENTIFICATION DIVISION.                                                 
+       PROGRAM-ID. OLACB03.                                                     
+                                                                                
+       ENVIRONMENT DIVISION.                                                    
+       DATA DIVISION.                                                           
+       WORKING-STORAGE SECTION.                                                 
+      *                                                                         
+       01  FILLER                            PIC X(32)  VALUE                   
+           '** Working storage starts here**'.                                  
+       01 registername                 PIC X(12) VALUE SPACES.                  
+       01 servicename                  PIC X(255).                              
+       01 servicenamel                 PIC 9(8) COMP.                           
+       01 srv-rqst-area                PIC X(100) VALUE SPACES.                 
+       01 srv-rqst-area-addr           USAGE POINTER.                           
+       01 srv-rqst-len                 PIC 9(8) COMP VALUE 100.                 
+       01 srp-resp-area                PIC X(2048) VALUE SPACES.                
+       01 srp-resp-area-addr           USAGE POINTER.                           
+       01 srp-resp-len                 PIC 9(8) COMP VALUE 100.                 
+       01 waittime                     PIC 9(8) USAGE BINARY.                   
+       01 con-handle-addr              PIC X(12) VALUE LOW-VALUES.              
+       01 rc                           PIC 9(8) COMP VALUE 0.                   
+       01 rsn                          PIC 9(8) COMP VALUE 0.                   
+       01 rv                           PIC 9(8) COMP VALUE 0.                   
+                                                                                
+      *                                                                         
+       LINKAGE SECTION.                                                         
+      *                                                                         
+       PROCEDURE DIVISION.                                                      
+      *                                                                         
+      * Setup the parameters to HOST A SERVICE                                  
+      *                                                                         
+           SET srv-rqst-area-addr TO ADDRESS OF srv-rqst-area.                  
+           MOVE LENGTH OF srv-rqst-area TO srv-rqst-len.                        
+      *                                                                         
+           MOVE 0 To waittime.                                                  
+      *                                                                         
+           MOVE 'OLACB03REG  ' TO registername.                                 
+           MOVE 'OLACB03' TO servicename.                                       
+           MOVE 5 TO servicenamel.                                              
+      *                                                                         
+           PERFORM BBOA1SRV-LOOP THRU BBOA1SRV-LOOP-END UNTIL rc GREATE         
+      -    R THAN 0.                                                            
+                                                                                
+           EXEC CICS RETURN                                                     
+             END-EXEC.                                                          
+                                                                                
+       BBOA1SRV-LOOP.                                                           
+      *                                                                         
+      * CALL HOST A SERVICE API                                                 
+      *                                                                         
+           CALL 'BBOA1SRV' USING registername,                                  
+                 servicename,                                                   
+                 servicenamel,                                                  
+                 srv-rqst-area-addr, srv-rqst-len,                              
+                 con-handle-addr,                                               
+                 waittime,                                                      
+                 rc, rsn, rv.                                                   
+                                                                                
+      *    DISPLAY "OLACB03: Back from BBOA1SRV!: " rc "/" rsn                  
+                                                                                
+           IF rc > 0 THEN                                                       
+             DISPLAY "OLACB03: Bad RC/RSN from BBOA1SRV: " rc "/" rsn           
+             EXIT PROGRAM                                                       
+           END-IF.                                                              
+      *                                                                         
+       BBOA1SRP-SETUP.                                                          
+      *                                                                         
+      * Setup the parameters to SEND RESPONSE                                   
+      *                                                                         
+           MOVE srv-rqst-area TO srp-resp-area.                                 
+           SET srp-resp-area-addr TO ADDRESS OF srp-resp-area.                  
+                                                                                
+       BBOA1SRP.                                                                
+      *                                                                         
+      * CALL SEND RESPONSE API                                                  
+      *                                                                         
+           CALL 'BBOA1SRP' USING con-handle-addr,                               
+                 srp-resp-area-addr, srp-resp-len,                              
+                 rc, rsn.                                                       
+                                                                                
+      *    DISPLAY "OLACB03: Back from BBOA1SRP!: " rc "/" rsn                  
+                                                                                
+           IF rc > 0 THEN                                                       
+             DISPLAY "OLACB03: Bad RC/RSN from BBOA1SRP: " rc "/" rsn           
+             EXIT PROGRAM                                                       
+           END-IF.                                                              
+      *                                                                         
+       BBOA1CNR.                                                                
+      *                                                                         
+      * Connection Release                                                      
+      *                                                                         
+           CALL 'BBOA1CNR' USING                                                
+                 con-handle-addr,                                               
+                 rc, rsn.                                                       
+                                                                                
+           If rc > 0 Then                                                       
+             DISPLAY "OLACB03: Bad RC/RSN from BBOA1CNR: " rc "/" rsn           
+             EXIT PROGRAM                                                       
+           End-IF.                                                              
+                                                                                
+       BBOA1SRV-LOOP-END.                                                       
+      *                                                                         
+//LKED.SYSLIB DD DSN=BOSS.OLA90907.PERF.SBBOLOAD,DISP=SHR                       
+//            DD DSN=MVSBUILD.CICSTS32.CICS.SDFHLOAD,DISP=SHR                   
+//            DD DSN=CEE.SCEELKED,DISP=SHR                                      
+//LKED.SYSIN  DD  *                                                             
+  NAME OLACB03(R)                                                               

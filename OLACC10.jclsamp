@@ -1,0 +1,177 @@
+//OLACC10 JOB (),'ME',REGION=0M,                                                
+//   MSGCLASS=H,MSGLEVEL=(1,1),NOTIFY=&SYSUID                                   
+//*                                                                             
+//*  Compile C CICS test target program for OLA                                 
+//*                                                                             
+//*  Test invoking a CICS program and returning a response to                   
+//*  WAS using a CHANNEL. This a an OLA Sample.                                 
+//*                                                                             
+//*  This test demonstrates how to pass data in multiple                        
+//*  containers and alter the contents of each -then send                       
+//*  back to WAS.  It copies the 1st 16 bytes of the data                       
+//*  in each container and echoes it twice in each response                     
+//*  container.                                                                 
+//*                                                                             
+//MYPROCS JCLLIB ORDER=CBC.SCCNPRC                                              
+//*                                                                             
+//* Template JCL to compile OLA C testcase                                      
+//*                                                                             
+//CSTD EXEC EDCCB,                                                              
+// CPARM='NOSEQ NOMAR SOURCE LIST LONGNAME RENT CICS(SP)',                      
+// PARM.BIND='AMODE=31,MAP,RENT,DYNAM=DLL,CASE=MIXED',                          
+// LNGPRFX='CBC',                                                               
+// LIBPRFX='CEE',                                                               
+// OUTFILE='BOSS.OLA.SAMPLES.LOAD(OLACC10),DISP=SHR'                      
+//*                                                                             
+//COMPILE.STEPLIB DD  DSNAME=CEE.SCEERUN2,DISP=SHR                              
+//         DD  DSNAME=CBC.SCCNCMP,DISP=SHR                                      
+//         DD  DSNAME=CEE.SCEERUN,DISP=SHR                                      
+//         DD  DSNAME=MVSBUILD.CICSTS41.CICS.SDFHLOAD,                          
+//             DISP=SHR                                                         
+//COMPILE.SYSLIB DD DSNAME=BOSS.OLA.SAMPLES.H,                            
+//             DISP=SHR                                                         
+//         DD  DSNAME=CEE.SCEEH.H,DISP=SHR                                      
+//         DD  DSNAME=CEE.SCEEH.SYS.H,DISP=SHR                                  
+//COMPILE.SYSIN DD  DATA,DLM=@@                                                 
+#include <string.h>                                                             
+#include <stdlib.h>                                                             
+#include <stdio.h>                                                              
+int main() {                                                                    
+    /* ------------------------------------------------------------ */          
+    /*                                                              */          
+    /* OLACC10.c   - Sample C program linked to by WOLA CICS        */          
+    /*               Link server. Prints out all incoming data      */          
+    /*               out of all containers, alters each container's */          
+    /*               data - copying 1st 16 bytes over the next 16   */          
+    /*               bytes and returning the responses in the same  */          
+    /*               containers.                                    */          
+    /*                                                              */          
+    /* Copyright IBM Corporation 2012,2014                          */
+    /*                                                              */
+    /* LICENSE: Apache License                                      */
+    /*          Version 2.0, January 2004                           */
+    /*          http://www.apache.org/licenses/                     */
+    /*                                                              */          
+    /* The following code is sample code created by IBM Corporation */          
+    /* This sample code is not part of any standard IBM product and */          
+    /* is provided to you solely for the purpose of assisting you i */          
+    /* the development of your applications.  The code is provided  */          
+    /* 'as is', without warranty or condition of any kind.  IBM sha */          
+    /* not be liable for any damages arising out of your use of the */          
+    /* sample code, even if IBM has been advised of the possibility */          
+    /* of such damages.                                             */          
+    /*                                                              */          
+    /* ------------------------------------------------------------ */          
+    /* Define all internal variables */                                         
+    char channelName[16];                                                       
+    int btoken;                                                                 
+    char containerName[16];                                                     
+    int dataLen = 0;                                                            
+    char* containerData_p;                                                      
+    int respCode = 0, respCode2 = 0;                                            
+                                                                                
+    containerData_p = (char*)malloc(32);                                        
+    memset(containerData_p, ' ', 32);                                           
+                                                                                
+    EXEC CICS ADDRESS EIB(dfheiptr);                                            
+                                                                                
+    /* Get the name of the channel */                                           
+    EXEC CICS ASSIGN CHANNEL(channelName);                                      
+                                                                                
+    /* Print out the channel name [DEBUG] */                                    
+    printf("OLACC10 entered with channel: %.16s", channelName);                 
+                                                                                
+    /* If no channel was passed in then terminate with abend code NOCH */       
+    if( memcmp(channelName,"                ", 16) == 0 )                       
+        EXEC CICS ABEND ABCODE("ERCH") NODUMP;                                  
+                                                                                
+    /* Obtain the browse token to use when inspecting containers */             
+    EXEC CICS STARTBROWSE CONTAINER                                             
+        CHANNEL(channelName)                                                    
+        BROWSETOKEN(btoken);                                                    
+                                                                                
+    /* Get the first container name */                                          
+    EXEC CICS GETNEXT CONTAINER(containerName)                                  
+        BROWSETOKEN(btoken)                                                     
+        RESP(respCode)                                                          
+        RESP2(respCode2);                                                       
+                                                                                
+    printf("The value of DFHRESP(END) is: %d\n", DFHRESP(END));                 
+                                                                                
+    /* Loop over each of the containers in the channel */                       
+    while( respCode != DFHRESP(END)){                                           
+        /* Get the length of data in the next container */                      
+        EXEC CICS GET CONTAINER(containerName)                                  
+            CHANNEL(channelName)                                                
+            NODATA                                                              
+            FLENGTH(dataLen)                                                    
+            RESP(respCode);                                                     
+                                                                                
+        /* Get the actual data in the next container */                         
+        EXEC CICS GET CONTAINER(containerName)                                  
+            CHANNEL(channelName)                                                
+            FLENGTH(dataLen)                                                    
+            INTO(containerData_p)                                               
+            RESP(respCode);                                                     
+                                                                                
+        /* Debug for respcodes */                                               
+        printf("EXEC CICS GET CONTAINER %.16s: respCode : %d\n", respCode);     
+                                                                                
+                                                                                
+        /* Display the data in the container */                                 
+        printf("Data in %.16s: %.32s\n", containerName, containerData_p);       
+                                                                                
+        /* Operation to test that we were here */                               
+        char* newContainerData_p = (char*)malloc(32);                           
+        snprintf(newContainerData_p, 32, "%.16s%.16s",                          
+            containerData_p, containerData_p);                                  
+                                                                                
+        /* Put the new string back into the container */                        
+        dataLen = 32;                                                           
+        printf("About to call EXEC CICS PUT with data: %.32s",                  
+            newContainerData_p);                                                
+                                                                                
+        EXEC CICS PUT CONTAINER(containerName)                                  
+            CHANNEL(channelName)                                                
+            FROM(newContainerData_p)                                            
+            FLENGTH(dataLen)                                                    
+            RESP(respCode);                                                     
+                                                                                
+        printf("EXEC CICS PUT CONTAINER: respcode: %d\n", respCode);            
+                                                                                
+        /* Clear our view of data */                                            
+        dataLen = 0;                                                            
+        respCode = 0;                                                           
+        respCode2 = 0;                                                          
+        memset(containerData_p, ' ', 32);                                       
+                                                                                
+        /* Get the next container */                                            
+        EXEC CICS GETNEXT CONTAINER(containerName)                              
+            BROWSETOKEN(btoken)                                                 
+            RESP(respCode)                                                      
+            RESP2(respCode2);                                                   
+                                                                                
+        /* Debug for respcodes */                                               
+        printf("EXEC CICS GETNEXT CONTAINER: respCode : %d\n", respCode);       
+        printf("EXEC CICS GETNEXT CONTAINER: respCode2: %d\n", respCode2);      
+                                                                                
+        /* Clean up memory */                                                   
+        free(newContainerData_p);                                               
+    }                                                                           
+                                                                                
+    free(containerData_p);                                                      
+    /* Finish */                                                                
+    EXEC CICS RETURN;                                                           
+                                                                                
+    return 0;                                                                   
+}                                                                               
+@@                                                                              
+//BIND.SYSLIB DD DSN=CEE.SCEELKEX,DISP=SHR                                      
+//         DD  DSN=CEE.SCEELKED,DISP=SHR                                        
+//         DD  DSNAME=MVSBUILD.CICSTS41.CICS.SDFHLOAD,                          
+//             DISP=SHR                                                         
+//         DD DSN=BOSS.LATEST.SBBOLOAD,DISP=SHR                              
+//         DD DSN=BOSS.OLA.SAMPLES.LOAD,DISP=SHR                          
+//BIND.SYSIN  DD  *                                                             
+  INCLUDE SYSLIB(DFHELII)                                                       
+  NAME OLACC10(R)                                                               

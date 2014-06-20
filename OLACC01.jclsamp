@@ -1,0 +1,262 @@
+//OLACC01 JOB (),'ME',REGION=0M,                                                
+//   MSGCLASS=H,NOTIFY=&SYSUID                                                  
+//*                                                                             
+/*JOBPARM S=*                                                                   
+//*                                                                             
+//MYPROCS JCLLIB ORDER=ZOS1B0.CBC.SCCNPRC                                       
+//*                                                                             
+//CMP  EXEC EDCCB,                                                              
+// CPARM='NOSEQ NOMAR SOURCE LIST RENT',                                        
+// LNGPRFX='ZOS1B0.CBC',                                                        
+// LIBPRFX='CEE',                                                               
+// OUTFILE='BOSS.OLA.SAMPLES.LOAD(OLACC01),DISP=SHR'                            
+//*                                                                             
+//COMPILE.SYSLIB DD DSNAME=BOSS.OLA.SAMPLES.SRC,DISP=SHR                        
+//         DD  DSNAME=CEE.SCEEH.H,DISP=SHR                                      
+//         DD  DSNAME=CEE.SCEEH.SYS.H,DISP=SHR                                  
+//COMPILE.SYSIN DD DATA,DLM=@@                                                  
+ /********************************************************************/         
+ /*                                                                  */         
+ /* olacc01.c - Sample C program for demonstrating OLA APIs.         */         
+ /*                                                                  */         
+ /* Copyright IBM Corporation 2008,2014                              */
+ /*                                                                  */
+ /* LICENSE: Apache License                                          */
+ /*          Version 2.0, January 2004                               */
+ /*          http://www.apache.org/licenses/                         */
+ /*                                                                  */         
+ /* This sample program calls BBOA1INV.                              */         
+ /*                                                                  */         
+ /* OLACC01 is a basic C sample program which is used to             */         
+ /* demonstrate the use the of BBOA1INV API to invoke a simple       */         
+ /* EJB running in WAS. This sample program can be run in either     */         
+ /* z/OS Batch or CICS.                                              */         
+ /*                                                                  */         
+ /* The following code is sample code created by IBM Corporation.    */         
+ /* This sample code is not part of any standard IBM product and     */         
+ /* is provided to you solely for the purpose of assisting you in    */         
+ /* the development of your applications. The code is provided       */         
+ /* 'as is', without warranty or condition of any kind. IBM shall    */         
+ /* not be liable for any damages arising out of your use of the     */         
+ /* sample code, even if IBM has been advised of the possibility     */         
+ /* of such damages.                                                 */         
+ /*                                                                  */         
+ /********************************************************************/         
+ #include <stdio.h>                                                             
+ #include <string.h>                                                            
+ #include <stdlib.h>                                                            
+ #include <bboaapi.h>                                                           
+                                                                                
+ /* The GETARG macro makes it easier to extract and validate input              
+    arguments passed to this sample program. */                                 
+                                                                                
+ #define GETARG(varName, argNum, maxLen, padChar, dfltStr)            \         
+     if (sizeof(varName) != maxLen)                                   \         
+     {                                                                \         
+             printf("Variable must be of length %d\n", maxLen);       \         
+             return(-1);                                              \         
+     }                                                                \         
+     memset(varName,padChar,maxLen);                                  \         
+     if (argc > argNum)                                               \         
+     {                                                                \         
+         if (strlen(argv[argNum]) > maxLen)                           \         
+         {                                                            \         
+             printf("Passed argument %d is too long: \"%s\"\n",       \         
+                    argNum,argv[argNum]);                             \         
+             printf("Maximum length for this argument is %d",maxLen); \         
+             return(-1);                                              \         
+         }                                                            \         
+         memcpy(varName,argv[argNum],strlen(argv[argNum]));           \         
+     }                                                                \         
+     else                                                             \         
+     {                                                                \         
+         memcpy(varName,dfltStr,                                      \         
+                (strlen(dfltStr)<maxLen ? strlen(dfltStr):maxLen));   \         
+     }                                                                          
+                                                                                
+ /********************************************************************/         
+ /*                                                                  */         
+ /* OLACC01 parameters:                                              */         
+ /*   argv[0]  - program name                                        */         
+ /*   argv[1]  - WAS daemon group short name (max 8 chars)           */         
+ /*   argv[2]  - WAS node short name (max 8 chars)                   */         
+ /*   argv[3]  - WAS server short name                               */         
+ /*                                                                  */         
+ /********************************************************************/         
+                                                                                
+ #define serviceJNDIname "java:global/OLASampleLiberty/OLASampleLibert"\
+                         "yEJB/EchoBean!com.ibm.websphere.ola.ExecuteL"\
+                         "ocalBusiness"                  
+                                                                                
+ int main(int argc, char *argv[])                                               
+ {                                                                              
+     char daemonGroupName[8];                                                   
+     char nodeName[8];                                                          
+     char serverName[8];                                                        
+     char registerName[12] = "OLACC01     ";                                    
+                                                                                
+     int minConn= 1;                                                            
+     int maxConn= 5;                                                            
+                                                                                
+     _REGFLAGS   regFlags= {0x00,0x00,0x00,0x00};                               
+     _UNREGFLAGS unregFlags= {0x00,0x00,0x00,0x00};                             
+                                                                                
+     int  requestType;                                                          
+     int  requestServiceNameLen;                                                
+     char requestServiceName[256];                                              
+                                                                                
+     char  requestData[256];                                                    
+     void *requestDataPtr = NULL;                                               
+     int   requestDataLen;                                                      
+                                                                                
+     char  responseData[256];                                                   
+     void *responseDataPtr = NULL;                                              
+     int   responseLen;                                                         
+     int   expected_responseLen;                                                
+                                                                                
+     int waittime = 0;                                                          
+                                                                                
+     int rc  = 0;                                                               
+     int rsn = 0;                                                               
+     int rv  = 0;                                                               
+     int errorFlag = 0;                                                         
+                                                                                
+     const char data2send[] =                                                   
+       "Sending this data to WAS using the OLA BBOA1INV (Invoke) API";          
+                                                                                
+     /* Handle input arguments. */                                              
+                                                                                
+     if (argc > 4)                                                              
+     {                                                                          
+         printf("Too many arguments\n");                                        
+         return(-1);                                                            
+     }                                                                          
+                                                                                
+     GETARG(daemonGroupName, 1, 8, 0x00, "SY1");                                
+     GETARG(nodeName, 2, 8, ' ', "SY1");                                        
+     GETARG(serverName, 3, 8, ' ', "BBOS001");                                  
+                                                                                
+     /****************************************************************/         
+     /*                                                              */         
+     /* Setup and call the OLA Register API (BBOA1REG).              */         
+     /*                                                              */         
+     /****************************************************************/         
+                                                                                
+     regFlags.reg_flag_trans = 0;         /* Turn transaction off    */         
+     regFlags.reg_flag_W2Cprop = 0;       /* Turn security off       */         
+                                                                                
+     BBOA1REG (  &daemonGroupName                                               
+               , &nodeName                                                      
+               , &serverName                                                    
+               , &registerName                                                  
+               , &minConn                                                       
+               , &maxConn                                                       
+               , &regFlags                                                      
+               , &rc                                                            
+               , &rsn                                                           
+              );                                                                
+                                                                                
+     if (rc != 0)                                                               
+     {                                                                          
+         printf("Register error! rc: %d rsn: %d\n",rc,rsn);                     
+         return(-1);                                                            
+     }                                                                          
+                                                                                
+     /****************************************************************/         
+     /*                                                              */         
+     /* Setup and call the OLA Invoke API (BBOA1INV).                */         
+     /*                                                              */         
+     /****************************************************************/         
+                                                                                
+     strncpy(requestServiceName,                                                
+             serviceJNDIname,                                                   
+             sizeof(requestServiceName));                                       
+     requestServiceNameLen = 0;   /* Service name is null terminated */         
+                                                                                
+     strncpy(requestData, data2send, sizeof(requestData));                      
+     requestDataPtr = &requestData;                                             
+     requestDataLen = strlen(data2send) + 1; /* + 1 for NULL char */            
+                                                                                
+     memset(responseData, 0x00, sizeof(responseData));                          
+     responseDataPtr = &responseData;                                           
+     responseLen = requestDataLen;                                              
+                                                                                
+     expected_responseLen = requestDataLen;/* expect to get req back */         
+                                                                                
+     printf("Invoking service \"%s\"\n", requestServiceName);                   
+                                                                                
+     requestType = 1;           /* Request Type: EJB */                         
+                                                                                
+     BBOA1INV (  &registerName                                                  
+               , &requestType                                                   
+               , &requestServiceName                                            
+               , &requestServiceNameLen                                         
+               , &requestDataPtr                                                
+               , &requestDataLen                                                
+               , &responseDataPtr                                               
+               , &responseLen                                                   
+               , &waittime                                                      
+               , &rc                                                            
+               , &rsn                                                           
+               , &rv                                                            
+              );                                                                
+                                                                                
+     if (rc == 0)                                                               
+     {                                                                          
+         if (rv == expected_responseLen)                                        
+         {                                                                      
+             printf("Invoke response length matches expected: %d\n",rv);        
+                                                                                
+             if (!memcmp(responseData, data2send, expected_responseLen))        
+             {                                                                  
+                 printf("Invoke response data matches expected\n");             
+             }                                                                  
+             else                                                               
+             {                                                                  
+                 printf("Invoke error! Did not recv expected data\n");          
+                 errorFlag = -1;                                                
+             }                                                                  
+         }                                                                      
+         else                                                                   
+         {                                                                      
+             printf("Invoke error! received %d bytes, expected %d\n",           
+                    rv, expected_responseLen);                                  
+             errorFlag = -1;                                                    
+         }                                                                      
+     }                                                                          
+     else                                                                       
+     {                                                                          
+         printf("Invoke error! rc: %d rsn: %d rv: %d\n", rc, rsn, rv);          
+         errorFlag = -1;                                                        
+     }                                                                          
+                                                                                
+                                                                                
+     /****************************************************************/         
+     /*                                                              */         
+     /* Setup and call the OLA Unregister API (BBOA1URG).            */         
+     /*                                                              */         
+     /****************************************************************/         
+                                                                                
+     BBOA1URG (  &registerName                                                  
+               , &unregFlags                                                    
+               , &rc                                                            
+               , &rsn                                                           
+              );                                                                
+                                                                                
+     if (rc != 0)                                                               
+     {                                                                          
+       printf("Unregister error! rc: %d rsn: %d\n",rc,rsn);                     
+       return(-1);                                                              
+     }                                                                          
+                                                                                
+     return(errorFlag);                                                         
+  }                                                                             
+@@                                                                              
+//BIND.SYSLIB DD DSN=CEE.SCEELKEX,DISP=SHR                                      
+//            DD DSN=CEE.SCEELKED,DISP=SHR                                      
+//            DD DSN=MVSBUILD.CICSTS31.CICS.SDFHLOAD,DISP=SHR                   
+//            DD DSN=BOSS.OLA90902.SBBOLOAD,DISP=SHR                            
+//BIND.SYSIN  DD  *                                                             
+  INCLUDE SYSLIB(DFHELII)                                                       
+  NAME OLACC01(R)                                                               
+/*                                                                              
