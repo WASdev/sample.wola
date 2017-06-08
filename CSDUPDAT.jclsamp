@@ -49,7 +49,7 @@
   DEFINE TDQUEUE(BBOQ) TYPE(EXTRA) DDNAME(BBOOUT) GROUP(BBOACSD)                
          DATABUFFERS(1) BLOCKFORMAT(UNBLOCKED) RECORDF(V)                       
          TYPEFILE(OUTPUT) DISPOSITION(SHR) OPENTIME(INITIAL)                    
-         BLOCKSIZE(224) RECORDSIZE(200)                                         
+         BLOCKSIZE(224) RECORDSIZE(220)                                         
   ADD GROUP(BBOACSD) LIST(BBOLIST)                                             
 /*                                                                              
 //                                                                              
