@@ -1,0 +1,327 @@
+//OLAPLS  JOB (),'ME',
+//   MSGCLASS=H,NOTIFY=&SYSUID
+//*
+//* BUILD SAMPLE PLTSD MODULE FOR TESTING OLA
+//*
+//* Copyright IBM Corporation 2010,2017
+//*                                                                       
+//* LICENSE: Apache License
+//*          Version 2.0, January 2004
+//*          http://www.apache.org/licenses/
+//*
+//KIXPROC JCLLIB ORDER=<CICS.SDFHPROC>
+//*
+//CMP1 EXEC DFHEITAL,INDEX='<CICSTSxx.CICS>',
+//        DSCTLIB='<CICS.SDFHMAC>'
+//TRN.SYSIN  DD *
+*ASM XOPTS(CICS,SP,NOPROLOG,NOEPILOG)
+         TITLE 'BBOACPLS - WAS Optimized Local Adapters CICS PLTSD'
+*/*START OF SPECIFICATIONS ********************************************
+*
+* DESCRIPTIVE-NAME: WAS z/OS Optimized Adapters CICS PLT Shutdown pgm
+*                   Support Start Server and Register requests
+*
+* CSECT NAME: BBOACPLS
+*
+* FUNCTION:  Run as CICS PLTSD program and shutdown all running
+*            WOLA Link servers
+*
+*END OF SPECIFICATIONS ***********************************************/
+*
+         DFHREGS  ,
+BBOACPLS AMODE 31
+BBOACPLS RMODE ANY
+BBOACPLS CSECT
+*
+         DFHEIENT CODEREG=11,EIBREG=10
+*
+         WTO   'XXXXXXS1I WAS z/OS OLA CICS PLT shutdown start.'
+*
+*
+*---------------------------------------------------------------------
+* Address the EIB.
+* This is needed, because EIBREG above is giving us the USER EIB
+* but we are compiled to use the SYSTEM EIB.
+*---------------------------------------------------------------------
+
+         EXEC CICS ADDRESS EIB(DFHEIBR)
+*
+         EXEC  CICS INQUIRE SYSTEM RELEASE(CICS_Release)
+*
+         CLC   CICS_Release,=CL4'0660'
+* CC 1 indicates current release is below 0660 - or CICS TS 4.1
+         BO    CICS_REL_WARN
+         B     CICS_REL_OK
+*
+CICS_REL_WARN DS 0H
+         WTO   'XXXXXXS1W Invalid CICS release. Requires CICS TS 4.1+'
+*
+CICS_REL_OK DS 0H
+*
+* Move Command to identify list of OLA Link Servers into BBOC_Parms
+* (we are using the V1 version of the COMMAREA/parm list for BBOACNTL)
+*
+         MVC   BBOC_P1(50),Cmd1a
+         MVC   BBOC_P1(30),=CL30'BBOC LIST_SRVR LTSQ=BBOALTSQ '
+         MVC   BBOC_P2(50),Cmd1b
+         MVC   BBOC_P3(50),Cmd1c
+         MVC   BBOC_P4(50),Cmd1d
+         MVC   BBOC_P5(50),Cmd1e
+         MVC   BBOC_P6(50),Cmd1f
+         MVC   BBOC_P6_VER,=XL4'00000000'
+         MVC   BBOC_P6_RC,=XL4'00000000'
+         MVC   BBOC_P6_RSN,=XL4'00000000'
+         LA    R2,300
+         STH   R2,BBOC_Parms_L
+*
+* Issue command to LINK to BBOACNTL with LIST_SRVR request
+*
+*
+         EXEC  CICS LINK PROGRAM('BBOACNTL')                           X
+               COMMAREA(BBOC_Parms)                                    X
+               LENGTH(BBOC_Parms_L) NOHANDLE
+*
+         LA    R6,1                R6 contains the Itemno
+         CLC   EIBRESP,=F'0'
+         BNE   BBOC_Req_Fail1
+         CLC   BBOC_P6_RC,=XL4'00000000'
+         BE    BBOC_Chk_msg
+         CLC   BBOC_P6_RC,=XL4'00000004'
+         BNE   BBOC_Req_Fail1
+*
+         WTO   'XXXXXXS8I No Link servers active in this region.'
+         B     Return
+*
+BBOC_Req_Fail1 DS 0H
+         WTO   'XXXXXXS1E Error in OLA BBOC request. Check BBOQ.'
+         B     Return
+*
+* Look for a BBOAxxxxE error message back from BBOC. If yes there was
+* an error. Indicate this and return.
+*
+BBOC_Chk_msg DS 0H
+         CLI   BBOC_Parms+8,C'E'
+         BNE   BBOC_Readq_TS
+         WTO   'XXXXXXS1E Error in OLA BBOC request. Check BBOQ.'
+         B     Return
+*
+BBOC_Readq_TS DS 0H
+*
+* Issue command to read each record and stop the link server for
+* each
+*
+         LA    R2,BBOALTSQ_Length
+         STH   R2,TSQ_Recordlen
+         MVC   TSQ_Name(8),=CL8'BBOALTSQ'
+         MVC   WTOMsgl(80),WTOMsgx
+         STH   R6,TSQ_Itemno
+*        MVC   WTOL1(38),=CL38'XXXXXXS2I Readq TS Item number:        '
+*        LH    R5,TSQ_Itemno
+*        CVD   R5,Dwork
+*        UNPK  WTOL2(8),Dwork
+*        OI    WTOL2+7,X'F0'
+*        WTO   MF=(E,WTOMsgL)
+*
+         EXEC  CICS READQ TS QUEUE(TSQ_Name)                           X
+               INTO(BBOALTSQ_Record) LENGTH(TSQ_Recordlen)             X
+               ITEM(TSQ_Itemno) NUMITEMS(TSQ_Numitems) NOHANDLE
+*
+         L     R5,EIBRESP
+         CVD   R5,Dwork
+         UNPK  WTOL2(8),Dwork
+         OI    WTOL2+7,X'F0'
+*
+         CLC   EIBRESP,DFHRESP(QIDERR)
+         BE    Readq_TS_QIDERR
+         CLC   EIBRESP,DFHRESP(LENGERR)
+         BE    Readq_TS_LENGERR
+         CLC   EIBRESP,DFHRESP(ITEMERR)
+         BE    Readq_TS_ITEMERR
+         CLC   EIBRESP,DFHRESP(NORMAL)
+         BE    Readq_TS_NORMAL
+         B     Readq_TS_OTHER
+*
+Readq_TS_QIDERR DS 0H
+         MVC   WTOL1(38),=CL38'XXXXXXS2E Readq TS QIDERR EIBRESP:     '
+         WTO   MF=(E,WTOMsgL)
+         B     Return
+Readq_TS_ITEMERR DS 0H
+         MVC   WTOL1(38),=CL38'XXXXXXS2E Readq TS ITEMERR EIBRESP:    '
+         WTO   MF=(E,WTOMsgL)
+         B     Return
+Readq_TS_LENGERR DS 0H
+         MVC   WTOL1(38),=CL38'XXXXXXS2E Readq TS LENGERR EIBRESP:    '
+         WTO   MF=(E,WTOMsgL)
+         MVC   WTOL1(38),=CL38'XXXXXXS3E Readq TS Record length:      '
+         LH    R5,TSQ_Recordlen
+         CVD   R5,Dwork
+         UNPK  WTOL2(8),Dwork
+         OI    WTOL2+7,X'F0'
+         WTO   MF=(E,WTOMsgL)
+         B     Return
+Readq_TS_NORMAL DS 0H
+*        MVC   WTOL1(38),=CL38'XXXXXXS3I Readq TS NORMAL EIBRESP:     '
+*        WTO   MF=(E,WTOMsgL)
+*        MVC   WTOL1(38),=CL38'XXXXXXS4I Readq TS Number records:     '
+*        LH    R5,TSQ_Numitems
+*        CVD   R5,Dwork
+*        UNPK  WTOL2(8),Dwork
+*        OI    WTOL2+7,X'F0'
+*        WTO   MF=(E,WTOMsgL)
+         MVC   WTOL1(38),=CL38'XXXXXXS5I Issuing OLA STOP_SRVR for:   '
+         MVC   WTOL2(12),BBOALTSQ_RegisterName
+         WTO   MF=(E,WTOMsgL)
+*
+* Move Command to identify list of OLA Link Servers into BBOC_Parms
+* (we are using the V1 version of the COMMAREA/parm list for BBOACNTL)
+*
+         MVC   BBOC_P1(50),Cmd1a
+         MVC   BBOC_P1(19),=CL19'BBOC STOP_SRVR RGN='
+         MVC   BBOC_P1+19(12),BBOALTSQ_RegisterName
+         MVC   BBOC_P2(50),Cmd1b
+         MVC   BBOC_P3(50),Cmd1c
+         MVC   BBOC_P4(50),Cmd1d
+         MVC   BBOC_P5(50),Cmd1e
+         MVC   BBOC_P6(50),Cmd1f
+         MVC   BBOC_P6_VER,=XL4'00000000'
+         MVC   BBOC_P6_RC,=XL4'00000000'
+         MVC   BBOC_P6_RSN,=XL4'00000000'
+         LA    R2,300
+         STH   R2,BBOC_Parms_L
+*
+* Issue command to LINK to BBOACNTL with STOP_SRVR request
+*
+*
+         EXEC  CICS LINK PROGRAM('BBOACNTL')                           X
+               COMMAREA(BBOC_Parms)                                    X
+               LENGTH(BBOC_Parms_L) NOHANDLE
+*
+         CLC   EIBRESP,=F'0'
+         BNE   BBOC_Req_Fail1
+         CLC   BBOC_P6_RC,=XL4'00000000'
+         BNE   BBOC_Req_Fail2
+         LH    R5,TSQ_Numitems
+         A     R6,=F'1'           Bump Itemno count
+         CR    R6,R5              Compare Itemno to Numitems
+         BC    12,BBOC_Readq_TS   Brif operands equal or 1st op. low
+         B     BBOC_Req_Ok
+*
+BBOC_Req_Fail2 DS 0H
+         WTO   'XXXXXXS1E Error in OLA BBOC request. Check BBOQ.'
+         B     Return
+*
+Readq_TS_OTHER  DS 0H
+         MVC   WTOL1(38),=CL38'XXXXXXS2E EIB Readq TS Other  EIBRESP: '
+         WTO   MF=(E,WTOMsgL)
+         B     Return
+BBOC_Req_Ok DS 0H
+         WTO   'XXXXXXS6I WAS z/OS OLA CICS Request Successful.'
+*
+* --------------------------------------------------------------------
+*
+* Return:  Exit program
+*
+* --------------------------------------------------------------------
+Return_OK DS  0H
+         WTO   'XXXXXXS7I WAS z/OS OLA CICS PLT shutdown ending.'
+*
+Return   DS  0H
+         DFHEIRET
+*
+* --------------------------------------------------------------------
+*
+* Constants/Literals/Variables/Data definitions
+*
+* --------------------------------------------------------------------
+REG_ON   EQU  X'80'
+SRVR_ON  EQU  X'40'
+         DS     0F
+Clear50  DC CL50'                                                  '
+BBOC_Cmd1 DS 0CL300
+Cmd1a    DC CL50'BBOC LIST_SRVR LTSQ=BBOALTSQ                      '
+Cmd1b    DC CL50'                                                  '
+Cmd1c    DC CL50'                                                  '
+Cmd1d    DC CL50'                                                  '
+Cmd1e    DC CL50'                                                  '
+Cmd1f    DC CL50'                                                  '
+WTOMsgx  EQU   *
+         DC    H'80'
+         DC    H'0'
+WTOx1    DC    CL40'                                        '
+WTOx2    DC    CL40'                                        '
+*
+DFHEISTG DSECT
+         DS     0F
+         DFHEISTG                      EXTENDED SAVE AREA FOR CICS
+* --------------------------------------------------------------------
+*
+* BBOC_Parms is the COMMAREA we are passing to BBOACNTL and where
+* the results of the LINK are returned
+*
+* --------------------------------------------------------------------
+BBOC_Parms DS 0D
+BBOC_P1    DS CL50
+BBOC_P2    DS CL50
+BBOC_P3    DS CL50
+BBOC_P4    DS CL50
+BBOC_P5    DS CL50
+BBOC_P6    DS 0CL50
+BBOC_P6_1  DS CL6
+BBOC_P6_VER DS F
+BBOC_P6_RC  DS F
+BBOC_P6_RSN DS F
+BBOC_P6_EXTRA DS CL32
+           DS 0F
+BBOC_Parms_L DS H
+CICS_Release DS CL4
+*
+* --------------------------------------------------------------------
+*
+* BBOALTSQ maps the record returned in the TSQ BBOALTSQ
+*
+* --------------------------------------------------------------------
+                      DS 0F
+BBOALTSQ_Record       DS 0CL256
+BBOALTSQ_Ver          DS F
+BBOALTSQ_JobName      DS CL8
+BBOALTSQ_RegisterName DS CL12
+BBOALTSQ_DaemonName   DS CL8
+BBOALTSQ_NodeName     DS CL8
+BBOALTSQ_ServerName   DS CL8
+BBOALTSQ_ServiceName  DS CL8
+BBOALTSQ_MinConn      DS F
+BBOALTSQ_MaxConn      DS F
+BBOALTSQ_ActConn      DS F
+BBOALTSQ_Status       DS F
+BBOALTSQ_Reuse        DS CL1
+BBOALTSQ_Txn          DS CL1
+BBOALTSQ_Sec          DS CL1
+BBOALTSQ_Lsync        DS CL1
+BBOALTSQ_ReuCount     DS F
+BBOALTSQ_ReuTime      DS F
+                      DS CL172    Fill to 256
+BBOALTSQ_Length       EQU *-BBOALTSQ_Record
+             DS 0F
+TSQ_Name     DS CL8
+TSQ_Recordlen DS H
+TSQ_Itemno DS H
+TSQ_Numitems DS H
+             DS 0F
+WTOMsgL  EQU   *
+         DS    H
+         DS    H
+WTOL1    DS    CL40
+WTOL2    DS    CL8
+WTOL3    DS    CL32
+Dwork    DS    D
+*
+EISTGLEN EQU *-DFHEISTG
+*
+         DFHEIEND
+*
+         END   BBOACPLS
+
+//LKED.SYSLMOD DD DSN=<TARGET.LMOD.DSN>,DISP=SHR
+//LKED.SYSIN DD *
+   MODE AMODE(31),RMODE(ANY)
+   NAME BBOACPLS(R)
