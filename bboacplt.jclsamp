@@ -61,7 +61,7 @@ CICS_REL_OK DS 0H
          MVC   TRUE_P4,Clear50
          MVC   TRUE_P5,Clear50
          MVC   TRUE_P6,=CL6'      '
-         MVC   TRUE_Parms+0(15),=CL16'BBOC START_TRUE '
+         MVC   TRUE_Parms+0(25),=CL26'BBOC START_TRUE CTID=BBOC '
          LA    R2,256
          STH   R2,TRUE_Parms_L
 *
